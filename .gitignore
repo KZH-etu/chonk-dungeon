@@ -1,0 +1,16 @@
+# Environnement Python
+.venv/
+__pycache__/
+*.pyc
+
+# Secrets (clé API Mistral)
+.env
+.env.*
+*.env
+
+# Sorties du harness
+logs/
+
+# Enregistrements OBS (trop lourds pour GitHub)
+*.mp4
+*.mkv
