@@ -151,13 +151,21 @@ pip install mistralai mss pyautogui pillow pygetwindow numpy
 - `python detectors.py --check` : compare tous les détecteurs à `ground_truth.json` (7/7 partout, dont la mort, sauf les messages, 6/7). Environ 45 ms par capture
 
 ### Étape 10 : la boucle et les modes
-- [ ] Machine à états : **Exploration, Combat, Alerte, Danger, Menu, Mort**
-- [ ] Exploration : décisions longues (clic sur une case éloignée = déplacement automatique, `R` pour reprendre un déplacement interrompu)
-- [ ] Combat et Danger : un appel par tour
-- [ ] Le message envoyé au modèle explique **pourquoi** on l'appelle (« tu as perdu 30 % de vie »)
-- [ ] **Appel sans image** quand l'écran utile n'est que du texte (journal, résultat d'« examiner », description d'objet) : on envoie le texte lu par OCR (~100-300 tokens au lieu de ~1 600 pour une capture à 768 px). L'image reste envoyée pour la carte et pour naviguer dans les menus (ouvrir le journal, choisir une entrée)
-- [ ] Les derniers messages du journal sont toujours joints **en texte** au message envoyé au modèle, même quand l'image est envoyée
-- [ ] Action **examiner** : le harness appuie sur `E`, clique sur la case demandée, capture la fenêtre de description du jeu, la ferme et renvoie le texte au modèle
+`harness.py` : la boucle, avec un « cerveau » interchangeable. `scripted` (liste d'actions) et `manual` (console) servent aux tests **sans API** ; le cerveau Mistral arrive à l'étape 11.
+
+- [x] Machine à états, du plus prioritaire au moins prioritaire : **Mort** (fin de partie), **Menu** (fenêtre ouverte), **Danger** (vie ≤ 35 % ou 30 % perdus d'un coup), **Combat** (ennemi en vue ou bouton d'attaque), **Alerte** (un changement : message, vie, bouton), **Exploration**
+- [x] Exploration : décisions longues (clic sur une case éloignée = le héros marche seul, la boucle attend qu'il s'arrête, jusqu'à 20 s ; action `resume` = `R`)
+- [x] Combat et Danger : un appel par tour
+- [x] Le message envoyé au modèle explique **pourquoi** on l'appelle (`changes()` : « vie : 100 % -> 70 % », « bouton d'attaque apparu », « nouveaux messages : ... », « déplacement terminé »)
+- [x] **Appel sans image** après « examiner » quand la fenêtre est lisible ; l'image reste envoyée pour la carte et les menus
+- [x] Les derniers messages du journal sont joints **en texte** à chaque appel (mise en forme à l'étape 11)
+- [x] Action **examiner** : `E` (ou la loupe), clic sur la case, lecture OCR de la fenêtre (`window_rect` + `read_window`), fermeture. Testé dans le jeu : escalier → « Depth entrance / Stairs lead up to the upper depth. »
+- [x] **Ramassage automatique** : bouton bleu sans ennemi en vue → `C` sans appeler le modèle (un appel économisé à chaque objet)
+- [ ] Limite de tokens par minute (`RateLimiter`) : écrite, à brancher sur le cerveau Mistral (étape 11)
+
+> **Clics** : le jeu prend un clic à la **dernière position de souris qu'il a vue**. `actions.py` déplace la souris, attend 0,1 s, puis clique ; sans cette pause, le clic tombait à l'ancienne position (la loupe ou le héros).
+
+> **Fenêtres** : l'OCR lit aussi le texte des fenêtres (même police que le journal, plus une police plus grande pour les titres), appris sur les captures `SPD_hero_info_*` et `SPD_journal_*`. Les icônes donnent des `?` en bout de ligne, retirés. Pas encore lu : le texte **sombre sur parchemin** des pages du guide (on enverra l'image).
 
 > **Principe : examiner plutôt que tout décrire.** Le jeu contient des éléments qu'on ne peut pas tous décrire à l'avance (on ne les a pas tous vus). Le prompt ne décrit que la **liste fermée** dont le harness dépend : héros, escalier, boutons d'attaque et de ramassage, barre de vie, journal. Pour tout le reste (monstres, objets, pièges, décor), en cas de doute, le modèle **examine** la case : le jeu lui donne le nom et la description. Les erreurs restantes se corrigent en jouant (un faux escalier : `>` ne fait rien, le journal le dit).
 

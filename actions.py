@@ -50,6 +50,7 @@ SCANCODES = {
 
 # Durée d'appui : un appui instantané peut passer inaperçu pour certains jeux
 HOLD_SECONDS = 0.05
+MOVE_SETTLE_SECONDS = 0.1
 
 
 # --------------------------------------------------------------------------- #
@@ -106,7 +107,11 @@ class Actions:
         """Clique sur un point_2d (0-1000, sur l'image de la zone client)."""
         x, y = self.window.to_screen(point_2d)
         self._ready()
-        pyautogui.click(x, y)
+        # Le jeu prend le clic à la dernière position de souris qu'il a vue : on déplace,
+        # on lui laisse le temps de voir le déplacement, puis on clique
+        pyautogui.moveTo(x, y)
+        time.sleep(MOVE_SETTLE_SECONDS)
+        pyautogui.click()
         return self.window.wait_stable() if wait else None
 
 

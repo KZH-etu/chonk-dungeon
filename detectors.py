@@ -106,6 +106,31 @@ def window_open(rgb, offset):
     return int(_near(zone, WINDOW_COLOR, 6).sum()) >= WINDOW_MIN_PIXELS
 
 
+def window_rect(image):
+    """Rectangle (gauche, haut, droite, bas) de la fenêtre ouverte, ou None.
+
+    Les bords gauche et droit sont les colonnes de la couleur du bord qui traversent
+    la zone centrale ; le haut et le bas, les extrémités de ces deux colonnes (le bord
+    du bas est souvent coupé par des onglets).
+    """
+    rgb = np.asarray(image.convert("RGB")) if isinstance(image, Image.Image) else image
+    border = _near(rgb, WINDOW_COLOR, 6)
+    y0, y1, x0, x1 = WINDOW_ZONE
+    columns = np.where(border[y0:y1].sum(axis=0) >= 40)[0]
+    columns = columns[(columns >= x0) & (columns < x1)]
+    if len(columns) < 2:
+        return None
+    left, right = int(columns.min()), int(columns.max())
+    if right - left < 60:
+        return None
+    # Segment continu le plus long de chaque bord vertical (la barre d'outils, plus bas, a la même couleur)
+    spans = [max(_runs(border[:, x], max_gap=3), key=lambda run: run[1] - run[0]) for x in (left, right)]
+    top, bottom = min(s[0] for s in spans), max(s[1] for s in spans)
+    if bottom - top < 30:
+        return None
+    return left, int(top), right + 1, int(bottom) + 1
+
+
 def inventory_open(rgb, offset):
     dx, dy = offset
     band = rgb[INVENTORY_BORDER_Y + dy - 3:INVENTORY_BORDER_Y + dy + 4, 730 + dx:1270 + dx]
