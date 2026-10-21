@@ -1,0 +1,206 @@
+{
+  "_comment": "Positions de référence en pixels de la capture d'origine (centre de la case, estimé à ±10 px). Une case du jeu fait ~48 px dans une fenêtre de 1280 px de large. pickup_button = bouton bleu de ramassage (visible quand le héros est sur un objet). Pièges, coffres et objets au sol ne sont pas notés.",
+  "SPD_in_fight.png": {
+    "hero": [
+      641,
+      360
+    ],
+    "enemies": [
+      [
+        692,
+        405
+      ]
+    ],
+    "stairs": [
+      [
+        350,
+        515
+      ]
+    ],
+    "attack_button": [
+      1243,
+      605
+    ],
+    "hp": [
+      20,
+      20
+    ],
+    "last_messages": [
+      "You descend to floor 1 of the dungeon."
+    ],
+    "pickup_button": null,
+    "inventory_open": false
+  },
+  "SPD_object_to_pick.png": {
+    "hero": [
+      634,
+      360
+    ],
+    "enemies": [],
+    "stairs": [
+      [
+        250,
+        612
+      ]
+    ],
+    "attack_button": null,
+    "hp": [
+      19,
+      20
+    ],
+    "last_messages": [
+      "You defeated marsupial rat.",
+      "You picked up: potion of healing.",
+      "You defeated marsupial rat."
+    ],
+    "pickup_button": [
+      1242,
+      535
+    ],
+    "inventory_open": false
+  },
+  "SPD_inventory_close.png": {
+    "hero": [
+      643,
+      362
+    ],
+    "enemies": [],
+    "stairs": [
+      [
+        497,
+        470
+      ]
+    ],
+    "attack_button": null,
+    "hp": [
+      20,
+      20
+    ],
+    "last_messages": [
+      "You descend to floor 1 of the dungeon."
+    ],
+    "pickup_button": null,
+    "inventory_open": false
+  },
+  "SPD_calm.png": {
+    "hero": [
+      636,
+      327
+    ],
+    "enemies": [],
+    "stairs": [
+      [
+        588,
+        390
+      ]
+    ],
+    "attack_button": null,
+    "hp": [
+      20,
+      20
+    ],
+    "last_messages": [
+      "You descend to floor 1 of the dungeon."
+    ],
+    "pickup_button": null,
+    "inventory_open": true
+  },
+  "SPD_scene_with_trap_treasure.png": {
+    "hero": [
+      646,
+      328
+    ],
+    "enemies": [],
+    "stairs": [],
+    "attack_button": null,
+    "pickup_button": null,
+    "hp": [
+      20,
+      20
+    ],
+    "inventory_open": true,
+    "last_messages": [
+      "You defeated marsupial rat.",
+      "You picked up: potion of healing.",
+      "You defeated sewer snake."
+    ]
+  },
+  "SPD_scene_with_two_enemies_object_trap_and_staircase_descending.png": {
+    "hero": [
+      638,
+      325
+    ],
+    "enemies": [
+      [
+        640,
+        137
+      ],
+      [
+        543,
+        375
+      ]
+    ],
+    "stairs": [
+      [
+        399,
+        196
+      ]
+    ],
+    "attack_button": null,
+    "pickup_button": null,
+    "hp": [
+      20,
+      20
+    ],
+    "inventory_open": true,
+    "last_messages": [
+      "You picked up: potion of healing.",
+      "You defeated sewer snake.",
+      "You picked up: gold."
+    ]
+  },
+  "SPD_with_button_enemy_button_object.png": {
+    "hero": [
+      638,
+      325
+    ],
+    "enemies": [
+      [
+        638,
+        280
+      ],
+      [
+        641,
+        419
+      ]
+    ],
+    "stairs": [
+      [
+        400,
+        343
+      ],
+      [
+        880,
+        55
+      ]
+    ],
+    "attack_button": [
+      1245,
+      368
+    ],
+    "pickup_button": [
+      1245,
+      288
+    ],
+    "hp": [
+      20,
+      20
+    ],
+    "inventory_open": true,
+    "last_messages": [
+      "You picked up: potion of healing.",
+      "You defeated sewer snake.",
+      "You picked up: gold."
+    ]
+  }
+}
