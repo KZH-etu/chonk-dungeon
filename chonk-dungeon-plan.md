@@ -133,6 +133,9 @@ pip install mistralai mss pyautogui pillow pygetwindow numpy
 - [ ] Changement dans la zone des messages
 - [ ] Changement dans la zone des statuts
 - [ ] Fenêtre ouverte (grosse zone centrale modifiée)
+- [ ] **Lecture du texte par OCR** (journal des messages, fenêtres « examiner », descriptions, pages du journal) : la police du jeu est une police pixel fixe, donc reconnaissance par modèles de lettres ou Tesseract sur l'image agrandie et binarisée. Garder la **couleur** de chaque ligne (blanc, jaune, orange = avertissement) et l'**ordre** des lignes
+  - Valider gratuitement sur les captures de référence (messages de `ground_truth.json`), sans appel API
+  - Secours : si le texte lu est douteux (caractères inconnus, ligne vide là où il y a du texte), on envoie l'image au modèle comme avant
 - [ ] Écran de mort
 
 ### Étape 10 : la boucle et les modes
@@ -140,6 +143,8 @@ pip install mistralai mss pyautogui pillow pygetwindow numpy
 - [ ] Exploration : décisions longues (clic sur une case éloignée = déplacement automatique, `R` pour reprendre un déplacement interrompu)
 - [ ] Combat et Danger : un appel par tour
 - [ ] Le message envoyé au modèle explique **pourquoi** on l'appelle (« tu as perdu 30 % de vie »)
+- [ ] **Appel sans image** quand l'écran utile n'est que du texte (journal, résultat d'« examiner », description d'objet) : on envoie le texte lu par OCR (~100-300 tokens au lieu de ~1 600 pour une capture à 768 px). L'image reste envoyée pour la carte et pour naviguer dans les menus (ouvrir le journal, choisir une entrée)
+- [ ] Les derniers messages du journal sont toujours joints **en texte** au message envoyé au modèle, même quand l'image est envoyée
 - [ ] Action **examiner** : le harness appuie sur `E`, clique sur la case demandée, capture la fenêtre de description du jeu, la ferme et renvoie le texte au modèle
 
 > **Principe : examiner plutôt que tout décrire.** Le jeu contient des éléments qu'on ne peut pas tous décrire à l'avance (on ne les a pas tous vus). Le prompt ne décrit que la **liste fermée** dont le harness dépend : héros, escalier, boutons d'attaque et de ramassage, barre de vie, journal. Pour tout le reste (monstres, objets, pièges, décor), en cas de doute, le modèle **examine** la case : le jeu lui donne le nom et la description. Les erreurs restantes se corrigent en jouant (un faux escalier : `>` ne fait rien, le journal le dit).
