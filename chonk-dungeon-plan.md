@@ -67,7 +67,7 @@ Harness permettant à **Mistral Large 4** de jouer à **Shattered Pixel Dungeon*
 
 > **Ramassage** : marcher sur la case d'un objet ramasse **certains** objets automatiquement, mais pas tous. Pour les autres, il faut le faire **volontairement**. Dès que le héros est sur un objet pas encore ramassé, le **bouton bleu** apparaît sur le bord droit de l'écran avec l'icône de l'objet : on ramasse avec `C` (ou un clic sur le bouton). Règle du harness : après chaque déplacement, si le bouton bleu est visible, proposer l'action « ramasser » au modèle.
 
-> **À tester à l'étape 8** : les diagonales n'existent que sur le pavé numérique. Vérifier que `pyautogui.press("num7")` fonctionne dans le jeu. Sinon, réassigner les diagonales à des lettres libres (ex. `Y` `U` `B` `N`) **avant** de caler les détecteurs, ou passer par des clics sur les cases.
+> **Testé à l'étape 8** : les diagonales du pavé numérique (`7` `9` `1` `3`) fonctionnent quand on les envoie au jeu, pas besoin de les réassigner.
 
 - [x] Repérer à l'écran : la zone des messages, la barre de vie, les icônes de statut, la case rouge, la case bleue, l'inventaire rapide
 - [x] Faire **3 captures de référence** : exploration calme, combat (case rouge visible), inventaire ouvert
@@ -120,9 +120,15 @@ pip install mistralai mss pyautogui pillow pygetwindow numpy
 ## Phase 2 : le cœur du harness (21-24 oct.)
 
 ### Étape 8 : capture et actions
-- [ ] `capture.py` : trouver la fenêtre du jeu, la capturer, recadrer sur la zone utile et réduire (768 px visé, 1024 px si le pointage l'exige)
-- [ ] `actions.py` : appuyer sur une touche, cliquer sur un `point_2d` (conversion de 0-1000 en pixels de la fenêtre)
-- [ ] Attendre que l'écran se **stabilise** après chaque action (comparaison de deux captures)
+- [x] `capture.py` : trouver la fenêtre du jeu, la mettre au premier plan, capturer sa zone client (1280×720, sans barre de titre) et réduire (768 px)
+- [x] `actions.py` : appuyer sur une touche, cliquer sur un `point_2d` (conversion de 0-1000 en pixels de la fenêtre)
+- [x] Attendre que l'écran se **stabilise** après chaque action (comparaison de deux captures) : ~0,5 s sans mouvement, ~1 s après un pas
+
+> **Clavier AZERTY** : le jeu lit la **position** des touches (noms QWERTY). Envoyées comme lettres, `W` et `A` deviennent `Z` (se reposer) et `Q` (attaquer). `actions.py` envoie donc des **scancodes** (position physique), indépendants de la disposition du clavier.
+
+> **Inventaire** : c'est un panneau, pas une fenêtre. `Échap` ne le ferme pas (il ouvre le menu du jeu) ; on le bascule avec `I`.
+
+> **Écran** : mise à l'échelle Windows 125 %, mais la zone client du jeu fait bien 1280×720 pixels physiques. Le harness se déclare « DPI aware » pour que capture et clics utilisent les mêmes pixels.
 
 ### Étape 9 : détecteurs Python (sans LLM)
 > **Prioritaire** : chaque appel évité compte, en tokens par minute comme en dollars.
