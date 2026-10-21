@@ -22,14 +22,17 @@ Exemples (sans API) :
 """
 
 import argparse
+import json
 import shlex
+import time
+import traceback
 from collections import deque
 from datetime import datetime
 
 from actions import Actions
 from capture import LOGS_DIR, GameWindow, changed_fraction, resize
 from detectors import changes, new_messages, read_screen, window_rect
-from memory import Memory
+from memory import Memory, describe_action
 from ocr import Reader
 
 # Modes, du plus prioritaire au moins prioritaire
@@ -63,6 +66,14 @@ def mode_for(state, previous):
 
 MOVE_KEYS = {"up", "down", "left", "right", "up_left", "up_right", "down_left", "down_right"}
 MOVED = 0.01  # au-delà de 1 % de pixels changés, l'écran a bougé (la caméra suit le héros)
+STUCK_REPEATS = 3
+NOT_STUCK_ACTIONS = {"wait", "rest", "examine"}  # ne changent pas l'écran, et c'est voulu
+NEW_GAME_BUTTON = [500, 532]  # bouton « New Game » de l'écran de mort (640, 383 sur 1280x720)
+COVERED_CHECKS, COVERED_PAUSE = 20, 3.0  # jeu couvert par une autre fenêtre : on attend jusqu'à 1 min
+
+
+class WindowCovered(RuntimeError):
+    """Une autre fenêtre reste devant le jeu : on ne peut ni voir ni jouer."""
 
 
 def describe_reasons(mode, state, previous, last_action, screen_changed=True):
@@ -156,9 +167,58 @@ class Harness:
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self.examined = None  # résultat du dernier « examiner », joint à l'appel suivant
         self.state = None     # dernier état lu à l'écran
+        self.turns = 0
+        self.death_cause = None
+        self.started = datetime.now()
+        self.recent = deque(maxlen=STUCK_REPEATS)  # (action, l'écran a-t-il changé ?)
+
+    def wait_uncovered(self):
+        """Met le jeu devant ; si une autre fenêtre le couvre (alerte Windows...), attend qu'elle parte."""
+        for attempt in range(COVERED_CHECKS):
+            self.window.focus()
+            if not self.window.covered():
+                return
+            if attempt == 0:
+                print("   Une autre fenêtre couvre le jeu : pause en attendant qu'elle se ferme.")
+            time.sleep(COVERED_PAUSE)
+        raise WindowCovered(f"le jeu est resté couvert par une autre fenêtre pendant"
+                            f" {COVERED_CHECKS * COVERED_PAUSE:.0f} s")
+
+    def check_stuck(self, last_action, screen_changed):
+        """Même action STUCK_REPEATS fois de suite sans rien changer à l'écran -> message pour le modèle."""
+        if not last_action or last_action.get("action") in NOT_STUCK_ACTIONS:
+            self.recent.clear()
+            return None
+        self.recent.append((describe_action(last_action), screen_changed))
+        if (len(self.recent) == STUCK_REPEATS and len({a for a, _ in self.recent}) == 1
+                and not any(changed for _, changed in self.recent)):
+            self.recent.clear()
+            print("   Bloqué : même action sans effet, on prévient le modèle.")
+            return (f"STUCK: you did '{describe_action(last_action)}' {STUCK_REPEATS} times in a row and"
+                    " nothing changed. Do something different.")
+        return None
+
+    def summary(self, end):
+        """Bilan de la partie (complété par main avec les appels et le coût)."""
+        return {"end": end, "floor": self.memory.floor, "deepest_floor": self.memory.deepest,
+                "goal_floor": self.goal_floor, "turns": self.turns, "death_cause": self.death_cause,
+                "started": self.started.isoformat(timespec="seconds"),
+                "ended": datetime.now().isoformat(timespec="seconds"),
+                "minutes": round((datetime.now() - self.started).total_seconds() / 60, 1)}
+
+    def start_new_game(self):
+        """Écran de mort : bouton « New Game ». Renvoie True si une nouvelle partie a bien commencé."""
+        self.window.focus()
+        self.actions.click(NEW_GAME_BUTTON, wait=False)
+        self.window.wait_stable(timeout=10.0)
+        _, state = self.look()
+        started = not state["dead"] and state["hp_ratio"] > 0 and not state["window_open"]
+        print("Nouvelle partie lancée." if started else
+              "Après « New Game », l'écran n'est pas une partie en cours : arrêt (à vérifier à la main).")
+        return started
 
     def look(self):
-        self.window.focus()
+        self.wait_uncovered()
         image, _, _ = self.window.wait_stable()
         self.state = read_screen(image, self.reader)
         return image, self.state
@@ -169,9 +229,16 @@ class Harness:
         self.memory.observe_messages([line["text"] for line in state["messages"]])
         previous, last_action, previous_image = None, None, None
         for turn in range(1, self.max_turns + 1):
-            mode = mode_for(state, previous)
+            self.turns = turn
             screen_changed = previous_image is None or changed_fraction(previous_image, image) > MOVED
+            stuck = self.check_stuck(last_action, screen_changed)
+            if stuck and state["window_open"]:
+                self.actions.press("close")  # sans fenêtre, Échap ouvrirait le menu du jeu
+                image, state = self.look()
+            mode = mode_for(state, previous)
             reasons = describe_reasons(mode, state, previous, last_action, screen_changed)
+            if stuck:
+                reasons.insert(0, stuck)
             if previous and self.memory.observe_messages(
                     new_messages([m["text"] for m in previous["messages"]], [m["text"] for m in state["messages"]])):
                 reasons.insert(0, f"you are now on floor {self.memory.floor}")
@@ -181,7 +248,9 @@ class Harness:
             image.save(self.run_dir / f"{turn:04}.png")
 
             if mode == DEAD:
-                print("Mort : fin de la partie.")
+                red = [line["text"] for line in state["messages"] if line["color"] == "red"]
+                self.death_cause = red[-1] if red else None
+                print(f"Mort : fin de la partie ({self.death_cause or 'cause non lue'}).")
                 return "dead"
             if self.goal_floor and self.memory.deepest >= self.goal_floor:
                 print(f"Objectif atteint : étage {self.memory.deepest}.")
@@ -251,14 +320,15 @@ class Harness:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Boucle du harness (étapes 10 et 11)")
+    parser = argparse.ArgumentParser(description="Boucle du harness (étapes 10 à 13)")
     parser.add_argument("--brain", choices=["scripted", "manual", "mistral"], default="manual")
     parser.add_argument("--script", default="", help="actions séparées par « ; » (cerveau scripted)")
     parser.add_argument("--max-turns", type=int, default=200)
     parser.add_argument("--goal-floor", type=int, default=3, help="arrête la partie en succès à cet étage (0 = jamais)")
     parser.add_argument("--model", help="cerveau mistral (par défaut : CHONK_MODEL)")
     parser.add_argument("--reasoning", default="none", help="reasoning_effort du modèle (none = pas de réflexion)")
-    parser.add_argument("--budget", type=float, default=0.5, help="coût maximal de la partie, en $")
+    parser.add_argument("--budget", type=float, default=0.5, help="coût maximal de la session (toutes les parties), en $")
+    parser.add_argument("--games", type=int, default=1, help="nombre de parties : après une mort, « New Game » et on continue")
     parser.add_argument("--dry-run", action="store_true", help="cerveau mistral : affiche le prompt sans appeler l'API")
     args = parser.parse_args()
     if args.brain == "mistral":
@@ -268,13 +338,34 @@ def main():
         brain = ScriptedBrain(args.script)
     else:
         brain = ManualBrain()
-    harness = Harness(brain, max_turns=args.max_turns, goal_floor=args.goal_floor or None)
-    print(f"Captures de chaque tour : {harness.run_dir}")
-    try:
-        harness.run()
-    finally:
-        if hasattr(brain, "summary"):
-            print(f"\nBilan : {brain.summary()}")
+    for game in range(1, args.games + 1):
+        harness = Harness(brain, max_turns=args.max_turns, goal_floor=args.goal_floor or None)
+        print(f"\n=== Partie {game}/{args.games} : captures dans {harness.run_dir}")
+        calls_before, cost_before = getattr(brain, "calls", 0), getattr(brain, "cost", 0.0)
+        end = "error"
+        try:
+            end = harness.run()
+        except KeyboardInterrupt:
+            end = "interrupted"
+            print("\nArrêt demandé (Ctrl+C).")
+        except WindowCovered as error:
+            end = "window_covered"
+            print(f"\nArrêt : {error}.")
+        except Exception:  # une erreur imprévue ne doit pas faire perdre le bilan
+            traceback.print_exc()
+        finally:
+            summary = harness.summary(end)
+            summary["calls"] = getattr(brain, "calls", 0) - calls_before
+            summary["cost_usd"] = round(getattr(brain, "cost", 0.0) - cost_before, 4)
+            summary["model"] = getattr(brain, "model", args.brain)
+            harness.memory.save(harness.run_dir / "memory.json")
+            (harness.run_dir / "run_summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False),
+                                                              encoding="utf-8")
+            print(f"Bilan de la partie : {summary}")
+        if end != "dead" or game == args.games or not harness.start_new_game():
+            break
+    if hasattr(brain, "summary"):
+        print(f"\nBilan de la session : {brain.summary()}")
 
 
 if __name__ == "__main__":

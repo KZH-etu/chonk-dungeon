@@ -199,11 +199,14 @@ pip install mistralai mss pyautogui pillow pygetwindow numpy
 - Testé dans le jeu avec le cerveau scripté (sans API) : l'examen de l'escalier est noté dans le carnet, l'historique garde chaque action et sa suite, `memory.json` est écrit à chaque tour
 
 ### Étape 13 : filets de sécurité
-- [ ] Même action 3 fois sans changement à l'écran : Échap automatique et message « tu es bloqué »
-- [ ] Réponse illisible : on réessaie une fois, puis action par défaut (attendre)
-- [ ] Mort : on enregistre les statistiques et on relance une partie
-- [ ] Erreur **429** (limite de tokens par minute) : attendre quelques secondes puis réessayer, sans faire planter la partie
-- [ ] **Compteur de coût** : arrêter proprement la partie si le budget fixé pour elle est dépassé
+- [x] Même action 3 fois sans changement à l'écran : message « STUCK: ... Do something different. » au modèle, et Échap **seulement si une fenêtre est ouverte** (sans fenêtre, Échap ouvre le menu du jeu). `wait`, `rest` et `examine` ne comptent pas (ils ne changent pas l'écran, et c'est voulu). Testé dans le jeu
+- [x] Réponse illisible : on réessaie une fois, puis action par défaut (attendre)
+- [x] Mort : bilan de la partie dans `run_summary.json` (fin, étage atteint, tours, cause de la mort lue en rouge dans le journal, appels, coût, durée) ; `--games N` relance avec « New Game » et vérifie qu'une partie a bien commencé, sinon arrêt propre. **Relance pas encore testée** (il faut une mort)
+- [x] Erreur **429** : attente puis nouvel essai ; si elle persiste, « attendre » sans faire planter la partie
+- [x] **Compteur de coût** : `--budget` arrête proprement la session quand il est dépassé
+- [x] **Fenêtre devant le jeu** (alerte Windows, notification) : vérifiée avant chaque capture (`WindowFromPoint` sur 9 points) ; pause jusqu'à 1 min, puis arrêt propre. Découvert pendant un test : une alerte « batterie faible » assombrissait le jeu, et la barre de vie assombrie se lisait comme vide
+- [x] **Mort = bandeau « Game Over »** uniquement (une vie à 0 ne suffit plus, pour la même raison)
+- [x] Erreur imprévue ou Ctrl+C : le bilan est quand même enregistré
 
 ### Étape 14 : logs
 - [ ] Un dossier par partie : capture, prompt, réponse, action, tokens et temps, pour chaque tour

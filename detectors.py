@@ -140,12 +140,12 @@ def inventory_open(rgb, offset):
     return bool((chrome.sum(axis=1) > 400).any())
 
 
-def dead(rgb, offset, hp):
-    """Mort : vie à 0, ou bandeau « Game Over » (au cas où la barre serait mal lue)."""
+def dead(rgb, offset):
+    """Mort : bandeau « Game Over ». La vie à 0 ne suffit pas : une barre assombrie (fenêtre
+    Windows par-dessus le jeu) se lit aussi comme vide."""
     dx, dy = offset
     y0, y1, x0, x1 = GAME_OVER_ZONE
-    banner = int(_near(rgb[y0 + dy:y1 + dy, x0 + dx:x1 + dx], GAME_OVER_COLOR, 6).sum()) >= GAME_OVER_MIN_PIXELS
-    return hp == 0 or banner
+    return int(_near(rgb[y0 + dy:y1 + dy, x0 + dx:x1 + dx], GAME_OVER_COLOR, 6).sum()) >= GAME_OVER_MIN_PIXELS
 
 
 def read_screen(image, reader=None):
@@ -157,7 +157,7 @@ def read_screen(image, reader=None):
     state.update(right_buttons(rgb))
     state["window_open"] = window_open(rgb, offset)
     state["inventory_open"] = inventory_open(rgb, offset)
-    state["dead"] = dead(rgb, offset, state["hp_ratio"])
+    state["dead"] = dead(rgb, offset)
     state["messages"] = reader.read_log(rgb)
     state["messages_unreadable"] = any("?" in line["text"] for line in state["messages"])
     return state

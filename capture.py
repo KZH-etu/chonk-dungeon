@@ -77,6 +77,19 @@ class GameWindow:
         user32.ClientToScreen(self.hwnd, ctypes.byref(origin))
         return origin.x, origin.y, rect.right, rect.bottom
 
+    def covered(self):
+        """True si une autre fenêtre (alerte Windows, notification...) passe devant la zone de jeu."""
+        left, top, width, height = self.client_rect()
+        if width <= 0 or height <= 0:
+            return True  # réduite
+        for fx in (0.05, 0.5, 0.95):
+            for fy in (0.05, 0.5, 0.95):
+                point = wintypes.POINT(round(left + fx * width), round(top + fy * height))
+                hwnd = user32.WindowFromPoint(point)
+                if user32.GetAncestor(hwnd, 2) != self.hwnd:  # GA_ROOT : la fenêtre principale
+                    return True
+        return False
+
     def focus(self):
         """Met le jeu au premier plan (les touches vont à la fenêtre active)."""
         if user32.GetForegroundWindow() == self.hwnd:
