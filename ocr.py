@@ -36,6 +36,7 @@ MAP_LEVEL = 225                  # le décor monte jusqu'à 221 (haut des murs) 
 TINY_INK = 8                     # signes minuscules (. : ' ,) : reconnus à leur position plutôt qu'à leur forme
 SPACE_GAP = 6                    # écart (px) à partir duquel deux lettres sont séparées par une espace
 LOG_END_GAP = 16                 # un blanc plus large termine une ligne du journal (ce qui suit est une fenêtre)
+LOG_START_MAX = 8                # une ligne du journal commence au bord gauche ; sinon c'est du décor clair
 MAX_DISTANCE = 0.25              # écart toléré avec une lettre connue (part des pixels)
 
 # Couleurs du texte (canal dominant à 255) -> sens dans le jeu
@@ -88,8 +89,10 @@ def segment(mask):
 
 
 def cut_at_gap(mask, gap=LOG_END_GAP):
-    """Efface tout ce qui suit le premier blanc de `gap` px : la ligne s'arrête là."""
+    """Garde le texte qui part du bord gauche, jusqu'au premier blanc de `gap` px : la ligne s'arrête là."""
     runs = segment(mask)
+    if runs and runs[0][0] > LOG_START_MAX:
+        return np.zeros_like(mask)
     for (_, end), (start, _) in zip(runs, runs[1:]):
         if start - end >= gap:
             mask = mask.copy()
@@ -276,6 +279,9 @@ class Reader:
 # Captures et texte exact de leurs lignes de journal, de la plus ancienne à la plus récente
 # (seulement les lignes visibles ; None = ligne à ignorer)
 OCR_SAMPLES = {
+    "images/ocr/log_seed_raido.png": [
+        "You defeated marsupial rat.", "You defeated marsupial rat.", "You defeated sewer snake.",
+        "You picked up: seed of fadeleaf.", "You picked up: gold.", "You picked up: scroll of RAIDO."],
     "images/ocr/status_healing.png": [
         "You defeated marsupial rat.", "You defeated sewer snake.", "You picked up: gold.",
         "You picked up: silver potion.", "Your wounds begin to close.", "You picked up: indigo potion."],

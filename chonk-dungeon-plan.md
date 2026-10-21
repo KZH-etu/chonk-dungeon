@@ -170,11 +170,22 @@ pip install mistralai mss pyautogui pillow pygetwindow numpy
 > **Principe : examiner plutôt que tout décrire.** Le jeu contient des éléments qu'on ne peut pas tous décrire à l'avance (on ne les a pas tous vus). Le prompt ne décrit que la **liste fermée** dont le harness dépend : héros, escalier, boutons d'attaque et de ramassage, barre de vie, journal. Pour tout le reste (monstres, objets, pièges, décor), en cas de doute, le modèle **examine** la case : le jeu lui donne le nom et la description. Les erreurs restantes se corrigent en jouant (un faux escalier : `>` ne fait rien, le journal le dit).
 
 ### Étape 11 : le prompt et le format de réponse
-- [ ] Prompt système : objectif, règles du jeu de base, table des touches, format de réponse
-- [ ] Réponse en **texte libre**, actions extraites par regex (recommandation du cookbook Mistral)
-- [ ] Format des actions : `{"key": "..."}`, `{"point_2d": [x, y], "label": "..."}`, `{"action": "attack"}`, `{"action": "loot"}`, `{"action": "examine", "point_2d": [x, y]}`
-- [ ] Le modèle a le droit de répondre **« inconnu »** pour un élément au lieu d'être forcé de trancher (créature ou non, escalier ou non) : un élément inconnu proche ou sur le chemin → examiner
-- [ ] Un champ `reasoning` court, affiché dans la vidéo
+`brain.py` (cerveau Mistral) et `llm.py` (clé, prix, 429, limite de tokens/min, partagé avec `vision_test.py`). Lancement : `python harness.py --brain mistral` (`--dry-run` affiche le prompt sans appel API, `--budget` plafonne le coût de la partie).
+
+- [x] Prompt système **en anglais** (comme le texte du jeu, le README et la vidéo) : objectif, fonctionnement du harness, actions, ce que montre l'écran (liste fermée), conseils de jeu, format de réponse (~530 mots)
+- [x] Réponse en **JSON imposé par l'API** (`json_schema` strict) plutôt qu'en texte libre + regex : au test de vision, 100 % de JSON valides. Le modèle ne peut ni oublier un champ ni inventer une action
+- [x] Format : `{"reasoning", "action": click | examine | attack | loot | key | wait | rest | resume, "point_2d", "key", "label"}`, champs inutiles à `null`, converti en décision du harness
+- [x] `label` peut valoir « unknown » : en cas de doute, le prompt demande d'**examiner** plutôt que de deviner
+- [x] `reasoning` : une phrase courte, enregistrée dans `reasoning.txt` du dossier de la partie (pour la vidéo)
+- [x] Message de chaque tour : mode, raisons de l'appel, état lu par les détecteurs, journal en texte, dernière action, résultat d'« examiner », image (sauf quand le texte suffit)
+- [x] Limite de tokens/min branchée ; réponse inutilisable : un nouvel essai puis « attendre » ; 429 persistant : « attendre » sans planter
+- [x] **Premier test (5 appels, 0,011 $)** : JSON valide à chaque appel, ~1 500 tokens et **0,0023 $ par appel**. Mais le modèle cliquait sur sa propre case et restait dans la salle. Corrigé :
+  - le harness signale un clic sans effet (« nothing happened: the hero did not move ... »)
+  - le prompt dit où est le héros (~[500, 500]) et demande des cibles **lointaines** (portes, couloirs, bords de la zone explorée)
+- [x] **Second test (10 appels, 0,024 $)** : le modèle vise les portes, sort de la salle, trouve un serpent d'égout, l'attaque et le tue (7 tours, 50 % de vie perdus : le serpent esquive beaucoup)
+  - Corrigé au passage : des pixels de mur clairs étaient lus comme des lignes du journal (une ligne doit commencer au bord gauche), et « RAIDO » était mal lu (I et O appris)
+- [x] Objectif donné au modèle : **atteindre l'étage 3**, donc prendre **deux fois un escalier qui descend** (jamais celui qui monte, par lequel on arrive : « Depth entrance » à l'examen). L'étage 5 et Goo viendront ensuite
+- [x] Conseil de jeu : les serpents d'égout esquivent beaucoup ; on les touche plus sûrement quand ils sont **sur une case de porte** juste à côté du héros (attendre près de la porte, puis attaquer)
 
 ### Étape 12 : la mémoire
 - [ ] **Carnet de notes** : le modèle peut ajouter ou modifier des notes (objets identifiés, dangers, plan)

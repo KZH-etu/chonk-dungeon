@@ -15,7 +15,6 @@ import argparse
 import base64
 import io
 import json
-import os
 import re
 import time
 from datetime import datetime
@@ -23,19 +22,13 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+from llm import BUDGET_USD, PRICES, TOKENS_PER_MINUTE, complete, env_value, load_api_key, prices_for
+
 ROOT = Path(__file__).parent
 IMAGES_DIR = ROOT / "images" / "screen_shot_game"
 GROUND_TRUTH = IMAGES_DIR / "ground_truth.json"
 LOGS_DIR = ROOT / "logs" / "vision_test"
 
-# Prix en $ par million de tokens (à confirmer sur mistral.ai/pricing)
-PRICES = {
-    "mistral-large": (1.36, 4.18),
-    "mistral-medium": (0.40, 2.00),
-    "mistral-small": (0.10, 0.30),
-}
-BUDGET_USD = 10.0
-TOKENS_PER_MINUTE = 20_000
 
 # Une case du jeu fait ~48 px dans une fenêtre de 1280 px de large
 TILE_PX_AT_1280 = 48
@@ -124,33 +117,6 @@ RESPONSE_FORMAT = {"type": "json_schema",
 # Utilitaires
 # --------------------------------------------------------------------------- #
 
-def env_value(name):
-    """Valeur d'une variable : environnement d'abord, sinon fichier .env."""
-    value = os.environ.get(name)
-    if value:
-        return value
-    env_file = ROOT / ".env"
-    if env_file.exists():
-        for line in env_file.read_text(encoding="utf-8").splitlines():
-            if line.strip().startswith(f"{name}="):
-                return line.split("=", 1)[1].strip().strip('"').strip("'")
-    return None
-
-
-def load_api_key():
-    key = env_value("MISTRAL_API_KEY")
-    if key:
-        return key
-    raise SystemExit("MISTRAL_API_KEY introuvable (variable d'environnement ou .env)")
-
-
-def prices_for(model):
-    for prefix, price in PRICES.items():
-        if model.startswith(prefix):
-            return price
-    return PRICES["mistral-large"]
-
-
 def resize(image, width):
     """Réduit l'image à `width` px de large en gardant les proportions."""
     if image.width <= width:
@@ -182,43 +148,8 @@ def extract_json(text):
 
 def call_model(client, model, content, max_tokens, reasoning=None):
     """Appel avec attente et nouvel essai en cas de 429 (limite de tokens/min)."""
-    extra = {"reasoning_effort": reasoning} if reasoning else {}
-    for attempt in range(5):
-        try:
-            start = time.perf_counter()
-            response = client.chat.complete(
-                model=model,
-                messages=[{"role": "user", "content": content}],
-                temperature=0.1,
-                max_tokens=max_tokens,
-                response_format=RESPONSE_FORMAT,
-                **extra,
-            )
-            return response, time.perf_counter() - start
-        except Exception as error:  # le SDK lève une erreur générique avec le code HTTP
-            if getattr(error, "status_code", None) != 429:
-                raise
-            print_rate_limits(error)
-            headers = getattr(error, "headers", None) or {}
-            if any(k.lower().startswith("x-ratelimit-limit") and v.strip() == "0" for k, v in headers.items()):
-                raise SystemExit("Limite à 0 : la clé n'a droit à aucun appel. Activer une offre API dans la console Mistral.")
-            if attempt == 4:
-                raise SystemExit("Toujours 429 après 5 essais : voir les en-têtes de limite ci-dessus.")
-            wait = 15 * (attempt + 1)
-            print(f"   429 (limite de débit) : attente {wait} s")
-            time.sleep(wait)
-
-
-def print_rate_limits(error):
-    """Affiche les en-têtes de limite renvoyés avec le 429 (quelle limite bloque, et quand elle se libère)."""
-    headers = getattr(error, "headers", None) or {}
-    limits = {k: v for k, v in headers.items() if "ratelimit" in k.lower() or k.lower() == "retry-after"}
-    print(f"   Réponse : {getattr(error, 'body', '')}")
-    if limits:
-        for key, value in sorted(limits.items()):
-            print(f"     {key}: {value}")
-    else:
-        print("     (aucun en-tête de limite renvoyé)")
+    return complete(client, model, [{"role": "user", "content": content}], max_tokens,
+                    response_format=RESPONSE_FORMAT, reasoning=reasoning)
 
 
 # --------------------------------------------------------------------------- #

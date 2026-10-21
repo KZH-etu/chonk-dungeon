@@ -23,12 +23,11 @@ Exemples (sans API) :
 
 import argparse
 import shlex
-import time
 from collections import deque
 from datetime import datetime
 
 from actions import Actions
-from capture import LOGS_DIR, GameWindow, resize
+from capture import LOGS_DIR, GameWindow, changed_fraction, resize
 from detectors import changes, read_screen, window_rect
 from ocr import Reader
 
@@ -39,7 +38,6 @@ DANGER_HP = 0.35          # vie à 35 % ou moins
 DANGER_DROP = 0.30        # ou 30 % de vie perdus depuis le dernier tour
 AUTO_PICKUP = True        # bouton bleu sans ennemi en vue : on ramasse sans appeler le modèle
 WALK_TIMEOUT = 20.0       # un long déplacement peut durer plusieurs secondes
-TOKENS_PER_MINUTE = 20_000
 
 
 # --------------------------------------------------------------------------- #
@@ -62,39 +60,23 @@ def mode_for(state, previous):
     return EXPLORE
 
 
-def describe_reasons(mode, state, previous, last_action):
-    """Pourquoi on appelle le cerveau, en phrases courtes (le modèle doit savoir ce qui a changé)."""
-    reasons = changes(previous, state) if previous else ["début de la partie"]
+MOVE_KEYS = {"up", "down", "left", "right", "up_left", "up_right", "down_left", "down_right"}
+MOVED = 0.01  # au-delà de 1 % de pixels changés, l'écran a bougé (la caméra suit le héros)
+
+
+def describe_reasons(mode, state, previous, last_action, screen_changed=True):
+    """Pourquoi on appelle le cerveau, en phrases courtes en anglais (le modèle doit savoir ce qui a changé)."""
+    reasons = changes(previous, state) if previous else ["start of the session"]
     if mode == DANGER:
-        reasons.insert(0, f"DANGER : vie à {state['hp_ratio']:.0%}")
-    if mode == EXPLORE and last_action and "point_2d" in last_action and "action" not in last_action:
-        reasons.append("déplacement terminé")
-    return reasons or ["tour suivant"]
-
-
-# --------------------------------------------------------------------------- #
-# Limite de débit (tokens par minute)
-# --------------------------------------------------------------------------- #
-
-class RateLimiter:
-    """Attend avant un appel si les tokens des 60 dernières secondes dépassent la limite."""
-
-    def __init__(self, tokens_per_minute=TOKENS_PER_MINUTE):
-        self.limit = tokens_per_minute * 0.9  # marge
-        self.calls = deque()  # (heure, tokens)
-
-    def wait(self, expected_tokens):
-        while True:
-            now = time.monotonic()
-            while self.calls and now - self.calls[0][0] > 60:
-                self.calls.popleft()
-            used = sum(tokens for _, tokens in self.calls)
-            if used + expected_tokens <= self.limit or not self.calls:
-                return
-            time.sleep(min(5.0, 60 - (now - self.calls[0][0]) + 0.1))
-
-    def record(self, tokens):
-        self.calls.append((time.monotonic(), tokens))
+        reasons.insert(0, f"DANGER: HP at {state['hp_ratio']:.0%}")
+    is_move = last_action and (("point_2d" in last_action and "action" not in last_action)
+                               or last_action.get("key") in MOVE_KEYS)
+    if is_move and not screen_changed:
+        reasons.append("nothing happened: the hero did not move (that tile may be his own tile, a wall,"
+                       " or out of reach)")
+    elif is_move and mode == EXPLORE:
+        reasons.append("your move is over")
+    return reasons or ["next turn"]
 
 
 # --------------------------------------------------------------------------- #
@@ -167,7 +149,6 @@ class Harness:
         self.reader = Reader()
         self.brain = brain
         self.max_turns = max_turns
-        self.limiter = RateLimiter()
         self.run_dir = run_dir or LOGS_DIR.parent / "runs" / datetime.now().strftime("%Y%m%d-%H%M%S")
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self.examined = None  # résultat du dernier « examiner », joint à l'appel suivant
@@ -181,10 +162,11 @@ class Harness:
 
     def run(self):
         image, state = self.look()
-        previous, last_action = None, None
+        previous, last_action, previous_image = None, None, None
         for turn in range(1, self.max_turns + 1):
             mode = mode_for(state, previous)
-            reasons = describe_reasons(mode, state, previous, last_action)
+            screen_changed = previous_image is None or changed_fraction(previous_image, image) > MOVED
+            reasons = describe_reasons(mode, state, previous, last_action, screen_changed)
             print(f"\nTour {turn} [{mode}] " + " ; ".join(reasons))
             image.save(self.run_dir / f"{turn:04}.png")
 
@@ -199,6 +181,7 @@ class Harness:
                     # Image seulement si l'écran n'est pas que du texte déjà lu
                     "image": None if self.examined and isinstance(self.examined, str) else resize(image),
                     "examined": self.examined,
+                    "last_action": last_action,
                 }
                 self.examined = None
                 decision = self.brain.decide(situation)
@@ -206,9 +189,12 @@ class Harness:
                     print("Le cerveau s'arrête.")
                     return
             print(f"   -> {decision}")
+            if decision.get("reasoning"):
+                with (self.run_dir / "reasoning.txt").open("a", encoding="utf-8") as notes:
+                    notes.write(f"{turn}\t{mode}\t{decision['reasoning']}\n")
             self.execute(decision)
             last_action = decision
-            previous = state
+            previous, previous_image = state, image
             image, state = self.look()
         print(f"Limite de {self.max_turns} tours atteinte.")
 
@@ -235,7 +221,7 @@ class Harness:
         image, _, _ = self.actions.click(point_2d)
         rect = window_rect(image)
         if rect is None:
-            self.examined = "rien à examiner à cet endroit (aucune fenêtre ouverte)"
+            self.examined = "nothing to examine on that tile (no description window opened)"
             self.actions.press("close")  # sort du mode « examiner » s'il est resté actif
             return
         crop = image.crop(rect)
@@ -247,15 +233,29 @@ class Harness:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Boucle du harness (étape 10)")
-    parser.add_argument("--brain", choices=["scripted", "manual"], default="manual")
+    parser = argparse.ArgumentParser(description="Boucle du harness (étapes 10 et 11)")
+    parser.add_argument("--brain", choices=["scripted", "manual", "mistral"], default="manual")
     parser.add_argument("--script", default="", help="actions séparées par « ; » (cerveau scripted)")
     parser.add_argument("--max-turns", type=int, default=200)
+    parser.add_argument("--model", help="cerveau mistral (par défaut : CHONK_MODEL)")
+    parser.add_argument("--reasoning", default="none", help="reasoning_effort du modèle (none = pas de réflexion)")
+    parser.add_argument("--budget", type=float, default=0.5, help="coût maximal de la partie, en $")
+    parser.add_argument("--dry-run", action="store_true", help="cerveau mistral : affiche le prompt sans appeler l'API")
     args = parser.parse_args()
-    brain = ScriptedBrain(args.script) if args.brain == "scripted" else ManualBrain()
+    if args.brain == "mistral":
+        from brain import MistralBrain
+        brain = MistralBrain(args.model, args.reasoning, args.budget, args.dry_run)
+    elif args.brain == "scripted":
+        brain = ScriptedBrain(args.script)
+    else:
+        brain = ManualBrain()
     harness = Harness(brain, max_turns=args.max_turns)
     print(f"Captures de chaque tour : {harness.run_dir}")
-    harness.run()
+    try:
+        harness.run()
+    finally:
+        if hasattr(brain, "summary"):
+            print(f"\nBilan : {brain.summary()}")
 
 
 if __name__ == "__main__":

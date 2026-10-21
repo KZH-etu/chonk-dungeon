@@ -164,24 +164,24 @@ def read_screen(image, reader=None):
 
 
 def changes(before, after):
-    """Ce qui a changé entre deux états : liste de raisons lisibles (pour dire au modèle pourquoi on l'appelle)."""
+    """Ce qui a changé entre deux états : raisons courtes, en anglais (le modèle les lit pour savoir pourquoi on l'appelle)."""
     reasons = []
     if before["hp_ratio"] - after["hp_ratio"] >= 0.01:
-        reasons.append(f"vie : {before['hp_ratio']:.0%} -> {after['hp_ratio']:.0%}")
-    for key, label in [("attack_button", "bouton d'attaque"), ("pickup_button", "bouton de ramassage")]:
+        reasons.append(f"HP {before['hp_ratio']:.0%} -> {after['hp_ratio']:.0%}")
+    for key, label in [("attack_button", "attack button"), ("pickup_button", "pickup button")]:
         if bool(before[key]) != bool(after[key]):
-            reasons.append(f"{label} {'apparu' if after[key] else 'disparu'}")
+            reasons.append(f"{label} {'appeared' if after[key] else 'disappeared'}")
     if before["enemies_visible"] != after["enemies_visible"]:
-        reasons.append("ennemi en vue" if after["enemies_visible"] else "plus d'ennemi en vue")
+        reasons.append("enemy in view" if after["enemies_visible"] else "no enemy in view any more")
     if after["dead"] and not before["dead"]:
-        reasons.append("mort")
+        reasons.append("you died")
     if before["window_open"] != after["window_open"]:
-        reasons.append("fenêtre ouverte" if after["window_open"] else "fenêtre fermée")
+        reasons.append("a window opened" if after["window_open"] else "the window closed")
     old = [line["text"] for line in before["messages"]]
     new = [line["text"] for line in after["messages"]]
     added = new_messages(old, new)
     if added:
-        reasons.append("nouveaux messages : " + " | ".join(added))
+        reasons.append("new log messages: " + " | ".join(added))
     return reasons
 
 
