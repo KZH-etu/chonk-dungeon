@@ -133,16 +133,22 @@ pip install mistralai mss pyautogui pillow pygetwindow numpy
 ### Étape 9 : détecteurs Python (sans LLM)
 > **Prioritaire** : chaque appel évité compte, en tokens par minute comme en dollars.
 
-- [ ] Case rouge visible ou non (couleur dans une zone fixe)
-- [ ] Case bleue visible ou non
-- [ ] Niveau de vie (longueur de la barre)
-- [ ] Changement dans la zone des messages
-- [ ] Changement dans la zone des statuts
-- [ ] Fenêtre ouverte (grosse zone centrale modifiée)
-- [ ] **Lecture du texte par OCR** (journal des messages, fenêtres « examiner », descriptions, pages du journal) : la police du jeu est une police pixel fixe, donc reconnaissance par modèles de lettres ou Tesseract sur l'image agrandie et binarisée. Garder la **couleur** de chaque ligne (blanc, jaune, orange = avertissement) et l'**ordre** des lignes
-  - Valider gratuitement sur les captures de référence (messages de `ground_truth.json`), sans appel API
-  - Secours : si le texte lu est douteux (caractères inconnus, ligne vide là où il y a du texte), on envoie l'image au modèle comme avant
-- [ ] Écran de mort
+- [x] Case rouge visible ou non : bouton d'attaque, cherché sur la colonne à 12 px du bord droit (sa hauteur varie avec l'inventaire)
+- [x] Case bleue visible ou non : bouton de ramassage, même colonne
+- [x] **Ennemis en vue** : compteur rouge à crâne sous le bouton du menu (bonus, gratuit)
+- [x] Niveau de vie (longueur de la barre rouge, x = 90 à 470)
+- [x] Changement dans la zone des messages : comparaison des lignes lues (`new_messages`)
+- [x] Statuts : pas de détecteur d'icônes (il y en a beaucoup, et le décor passe derrière). Un statut se signale par une **perte de vie** et un **message** coloré (ex. vert « Your wounds begin to close. »), déjà détectés ; le modèle voit les icônes sur l'image quand on l'appelle
+- [x] Fenêtre ouverte : couleur du bord des fenêtres (160,166,149) dans la zone centrale (2 000 à 4 000 px avec fenêtre, 210 au plus sans)
+- [x] Inventaire ouvert : bord du panneau à y = 475 (fermé : y = 649)
+- [x] **Lecture du journal par OCR** (`ocr.py`) : bibliothèque de lettres apprises sur de vraies captures (`ocr_glyphs.json`), avec la couleur et l'ordre des lignes, et recollage des longs messages coupés
+  - La police du jeu (`pixel_font.ttf`, dans `desktop-4.0.2.jar`) ne suffit pas : le moteur la lisse à sa façon
+  - Validé sans appel API : 6/7 captures de référence (la 7e a la 1re lettre coupée au recadrage), 30/30 vraies captures
+  - Couleurs des lignes : blanc, jaune, orange (avertissement), rouge (mort), vert (soin, effet positif)
+  - Lettres connues : `!'.1:AKMNTUYabcdefghiklmnoprstuvwy`. Une lettre inconnue donne `?` : la ligne est alors marquée illisible et on envoie l'image au modèle. **Enrichir** en ajoutant des captures et leur texte dans `OCR_SAMPLES` puis `python ocr.py --learn`
+  - Reste à faire : le texte des **fenêtres** (examiner, descriptions), écrit dans une autre taille de police
+- [x] Écran de mort : vie à 0, ou bandeau « Game Over » (couleur (131,141,110), absente de toutes les autres captures). Le message de mort est en **rouge** (« Marsupial rat killed you... »)
+- `python detectors.py --check` : compare tous les détecteurs à `ground_truth.json` (7/7 partout, dont la mort, sauf les messages, 6/7). Environ 45 ms par capture
 
 ### Étape 10 : la boucle et les modes
 - [ ] Machine à états : **Exploration, Combat, Alerte, Danger, Menu, Mort**
