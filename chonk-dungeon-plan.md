@@ -188,10 +188,15 @@ pip install mistralai mss pyautogui pillow pygetwindow numpy
 - [x] Conseil de jeu : les serpents d'égout esquivent beaucoup ; on les touche plus sûrement quand ils sont **sur une case de porte** juste à côté du héros (attendre près de la porte, puis attaquer)
 
 ### Étape 12 : la mémoire
-- [ ] **Carnet de notes** : le modèle peut ajouter ou modifier des notes (objets identifiés, dangers, plan)
-- [ ] Ce qu'il apprend en examinant va dans le carnet (ex. « planches marron sur l'eau = pont »), pour ne pas réexaminer la même chose à chaque étage
-- [ ] **Historique court** : les 5 à 10 dernières actions en texte
-- [ ] Pas d'historique d'images : **une seule capture par appel**
+`memory.py`, branché dans `harness.py` et `brain.py`. Enregistré à chaque tour dans `memory.json` du dossier de la partie (pour la vidéo).
+
+- [x] **Carnet de notes** : la réponse a deux champs `note_add` (une note courte) et `note_remove` (numéro d'une note). 15 notes au plus (la plus ancienne part). Les notes du modèle sont préfixées par l'étage où il les écrit (« (floor 1) ... »)
+- [x] Ce qu'il apprend en examinant va **tout seul** dans le carnet (« Examined Depth entrance: Stairs lead up to the upper depth. »), une seule fois par chose
+- [x] **Historique court** : les 8 dernières actions, chacune avec **ce qui a suivi** (« T2 click [500, 500] -> nothing happened: the hero did not move »)
+- [x] Pas d'historique d'images : **une seule capture par appel**
+- [x] **Étage courant** suivi grâce au journal (« You descend to floor 2 ») et donné au modèle à chaque tour ; `--goal-floor 3` (par défaut) arrête la partie en succès à l'étage 3
+- Le prompt demande de décrire les lieux en mots, pas en coordonnées (elles changent quand la caméra bouge). Coût : ~+500 tokens par appel (~0,003 $ au lieu de 0,0024 $)
+- Testé dans le jeu avec le cerveau scripté (sans API) : l'examen de l'escalier est noté dans le carnet, l'historique garde chaque action et sa suite, `memory.json` est écrit à chaque tour
 
 ### Étape 13 : filets de sécurité
 - [ ] Même action 3 fois sans changement à l'écran : Échap automatique et message « tu es bloqué »

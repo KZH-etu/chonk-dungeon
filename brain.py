@@ -13,9 +13,6 @@ from llm import RateLimiter, complete, cost_usd, default_model, make_client
 MAX_TOKENS = 300
 EXPECTED_TOKENS = 2_600  # estimation d'un appel avec image, avant d'avoir le vrai chiffre
 
-MODE_NAMES = {"Mort": "Dead", "Menu": "Menu", "Danger": "Danger", "Combat": "Combat",
-              "Alerte": "Alert", "Exploration": "Exploration"}
-
 SYSTEM_PROMPT = """You are playing Shattered Pixel Dungeon, a turn-based roguelike, through a harness.
 Goal: reach floor 3. You start on floor 1, so you must take a DOWN staircase twice.
 Only DOWN staircases count: never take the UP staircase (the one you arrive by on each floor; examine
@@ -28,6 +25,12 @@ How it works
   again when something matters (a long walk is a single call).
 - Positions: "point_2d": [x, y], normalized 0-1000 on the screenshot ([0, 0] top-left,
   [1000, 1000] bottom-right). Point at the CENTER of the tile.
+- Memory: you only see one screenshot per call, so the harness keeps for you the current floor, your
+  recent actions with what followed (learn from them: do not repeat what did not work), and a notebook.
+  Write a note when you learn something worth keeping (where the down staircase is, a dangerous enemy,
+  what an item does, your plan for this floor); remove notes that are no longer true. Screen positions
+  change when the camera moves, so describe places in words ("down stairs in the room north of the
+  start"), not with coordinates. What you examine is noted for you automatically.
 
 Actions
 - click (point_2d): walk to a tile (the hero walks the whole path on his own and stops if something
@@ -63,7 +66,9 @@ Play well
 
 Answer
 - "reasoning": one short sentence (max 20 words), shown to viewers.
-- "action" and its fields; set unused fields to null. "label": what is at point_2d ("unknown" if unsure)."""
+- "action" and its fields; set unused fields to null. "label": what is at point_2d ("unknown" if unsure).
+- "note_add": a short note to add to your notebook, or null. "note_remove": number of a note to delete,
+  or null. Most turns need no note."""
 
 _POINT = {"type": "array", "items": {"type": "integer"}}
 _SCHEMA = {
@@ -75,8 +80,10 @@ _SCHEMA = {
         "point_2d": {"anyOf": [_POINT, {"type": "null"}]},
         "key": {"anyOf": [{"type": "string", "enum": sorted(KEYS)}, {"type": "null"}]},
         "label": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "note_add": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "note_remove": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
     },
-    "required": ["reasoning", "action", "point_2d", "key", "label"],
+    "required": ["reasoning", "action", "point_2d", "key", "label", "note_add", "note_remove"],
     "additionalProperties": False,
 }
 RESPONSE_FORMAT = {"type": "json_schema",
@@ -88,7 +95,7 @@ def situation_text(situation):
     state = situation["state"]
     yes_no = lambda value: "yes" if value else "no"  # noqa: E731
     lines = [
-        f"Turn {situation['turn']}. Mode: {MODE_NAMES.get(situation['mode'], situation['mode'])}.",
+        f"Turn {situation['turn']}. Mode: {situation['mode']}.",
         "Why you are called: " + "; ".join(situation["reasons"]),
         f"Screen state: HP {state['hp_ratio']:.0%}; attack button: {yes_no(state['attack_button'])};"
         f" pickup button: {yes_no(state['pickup_button'])}; enemies in view: {yes_no(state['enemies_visible'])};"
@@ -98,9 +105,8 @@ def situation_text(situation):
         lines.append("Game log (oldest first):")
         lines += [f"- {line['text']}" + (f" [{line['color']}]" if line["color"] != "white" else "")
                   for line in state["messages"]]
-    last = situation.get("last_action")
-    if last:
-        lines.append(f"Your last action: {json.dumps({k: v for k, v in last.items() if v is not None})}")
+    if situation.get("memory"):
+        lines.append(situation["memory"])
     examined = situation.get("examined")
     if isinstance(examined, str):
         lines.append(f"Examine result: {examined}")
@@ -112,7 +118,16 @@ def situation_text(situation):
 
 
 def to_decision(answer):
-    """Réponse du modèle -> décision du harness (None si incomplète)."""
+    """Réponse du modèle -> décision du harness (None si incomplète), avec les changements de carnet."""
+    decision = _action(answer)
+    if decision:
+        for field in ("note_add", "note_remove"):
+            if answer.get(field) is not None:
+                decision[field] = answer[field]
+    return decision
+
+
+def _action(answer):
     action = answer.get("action")
     point = answer.get("point_2d")
     has_point = isinstance(point, list) and len(point) == 2

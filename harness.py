@@ -28,11 +28,12 @@ from datetime import datetime
 
 from actions import Actions
 from capture import LOGS_DIR, GameWindow, changed_fraction, resize
-from detectors import changes, read_screen, window_rect
+from detectors import changes, new_messages, read_screen, window_rect
+from memory import Memory
 from ocr import Reader
 
 # Modes, du plus prioritaire au moins prioritaire
-DEAD, MENU, DANGER, COMBAT, ALERT, EXPLORE = "Mort", "Menu", "Danger", "Combat", "Alerte", "Exploration"
+DEAD, MENU, DANGER, COMBAT, ALERT, EXPLORE = "Dead", "Menu", "Danger", "Combat", "Alert", "Exploration"
 
 DANGER_HP = 0.35          # vie à 35 % ou moins
 DANGER_DROP = 0.30        # ou 30 % de vie perdus depuis le dernier tour
@@ -143,12 +144,14 @@ def format_situation(situation):
 # --------------------------------------------------------------------------- #
 
 class Harness:
-    def __init__(self, brain, max_turns=200, run_dir=None):
+    def __init__(self, brain, max_turns=200, goal_floor=None, run_dir=None):
         self.window = GameWindow()
         self.actions = Actions(self.window)
         self.reader = Reader()
         self.brain = brain
         self.max_turns = max_turns
+        self.goal_floor = goal_floor
+        self.memory = Memory()
         self.run_dir = run_dir or LOGS_DIR.parent / "runs" / datetime.now().strftime("%Y%m%d-%H%M%S")
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self.examined = None  # résultat du dernier « examiner », joint à l'appel suivant
@@ -161,42 +164,55 @@ class Harness:
         return image, self.state
 
     def run(self):
+        """Joue jusqu'à la mort, l'étage visé, l'arrêt du cerveau ou la limite de tours. Renvoie la raison de l'arrêt."""
         image, state = self.look()
+        self.memory.observe_messages([line["text"] for line in state["messages"]])
         previous, last_action, previous_image = None, None, None
         for turn in range(1, self.max_turns + 1):
             mode = mode_for(state, previous)
             screen_changed = previous_image is None or changed_fraction(previous_image, image) > MOVED
             reasons = describe_reasons(mode, state, previous, last_action, screen_changed)
-            print(f"\nTour {turn} [{mode}] " + " ; ".join(reasons))
+            if previous and self.memory.observe_messages(
+                    new_messages([m["text"] for m in previous["messages"]], [m["text"] for m in state["messages"]])):
+                reasons.insert(0, f"you are now on floor {self.memory.floor}")
+            self.memory.record_outcome(reasons)
+            self.memory.save(self.run_dir / "memory.json")
+            print(f"\nTour {turn} [{mode}] étage {self.memory.floor} : " + " ; ".join(reasons))
             image.save(self.run_dir / f"{turn:04}.png")
 
             if mode == DEAD:
                 print("Mort : fin de la partie.")
-                return
+                return "dead"
+            if self.goal_floor and self.memory.deepest >= self.goal_floor:
+                print(f"Objectif atteint : étage {self.memory.deepest}.")
+                return "goal"
             if AUTO_PICKUP and state["pickup_button"] and not state["enemies_visible"] and mode != MENU:
-                decision = {"action": "loot", "reasoning": "ramassage automatique (aucun ennemi en vue)"}
+                decision = {"action": "loot", "reasoning": "automatic pickup (no enemy in view)"}
             else:
                 situation = {
                     "turn": turn, "mode": mode, "reasons": reasons, "state": state,
                     # Image seulement si l'écran n'est pas que du texte déjà lu
                     "image": None if self.examined and isinstance(self.examined, str) else resize(image),
                     "examined": self.examined,
-                    "last_action": last_action,
+                    "memory": self.memory.to_text(),
                 }
                 self.examined = None
                 decision = self.brain.decide(situation)
                 if decision is None:
                     print("Le cerveau s'arrête.")
-                    return
+                    return "stopped"
             print(f"   -> {decision}")
             if decision.get("reasoning"):
                 with (self.run_dir / "reasoning.txt").open("a", encoding="utf-8") as notes:
                     notes.write(f"{turn}\t{mode}\t{decision['reasoning']}\n")
+            self.memory.apply(decision)
+            self.memory.record_action(turn, mode, decision)
             self.execute(decision)
             last_action = decision
             previous, previous_image = state, image
             image, state = self.look()
         print(f"Limite de {self.max_turns} tours atteinte.")
+        return "max_turns"
 
     def execute(self, decision):
         action = decision.get("action")
@@ -229,6 +245,8 @@ class Harness:
         text = self.reader.read_window(crop)
         # Texte lisible -> appel sans image ; sinon on garde l'image de la fenêtre
         self.examined = text if text and "?" not in text else crop
+        if isinstance(self.examined, str):
+            self.memory.note_examined(text)
         self.actions.press("close")
 
 
@@ -237,6 +255,7 @@ def main():
     parser.add_argument("--brain", choices=["scripted", "manual", "mistral"], default="manual")
     parser.add_argument("--script", default="", help="actions séparées par « ; » (cerveau scripted)")
     parser.add_argument("--max-turns", type=int, default=200)
+    parser.add_argument("--goal-floor", type=int, default=3, help="arrête la partie en succès à cet étage (0 = jamais)")
     parser.add_argument("--model", help="cerveau mistral (par défaut : CHONK_MODEL)")
     parser.add_argument("--reasoning", default="none", help="reasoning_effort du modèle (none = pas de réflexion)")
     parser.add_argument("--budget", type=float, default=0.5, help="coût maximal de la partie, en $")
@@ -249,7 +268,7 @@ def main():
         brain = ScriptedBrain(args.script)
     else:
         brain = ManualBrain()
-    harness = Harness(brain, max_turns=args.max_turns)
+    harness = Harness(brain, max_turns=args.max_turns, goal_floor=args.goal_floor or None)
     print(f"Captures de chaque tour : {harness.run_dir}")
     try:
         harness.run()
