@@ -58,7 +58,10 @@ def build_map(image):
     else:
         box = (max(int(xs.min()) - MAP_PAD, 0), max(int(ys.min()) - MAP_PAD, 0),
                min(int(xs.max()) + MAP_PAD + 1, image.width), min(int(ys.max()) + MAP_PAD + 1, image.height))
-    crop = image.convert("RGB").crop(box)
+    clean = image.convert("RGB")
+    hidden = np.asarray(clean).copy()
+    hidden[~explored_mask(hidden) & (hidden.max(axis=2) > LIT_LEVEL)] = 0  # interface et journal effacés
+    crop = Image.fromarray(hidden).crop(box)
     scale = min(MAX_SIDE / crop.width, MAX_SIDE / crop.height, (MAX_AREA / (crop.width * crop.height)) ** 0.5)
     size = (max(round(crop.width * scale), 1), max(round(crop.height * scale), 1))
     scale = size[0] / crop.width

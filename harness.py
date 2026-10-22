@@ -74,7 +74,7 @@ MOVED = 0.01  # au-delà de 1 % de pixels changés, l'écran a bougé (la camér
 STUCK_REPEATS = 3
 NO_MOVE_LIMIT = 3  # déplacements sans effet de suite (même si les cibles diffèrent) -> message STUCK
 MAX_STEPS = 10     # pas au plus par action « move »
-NOT_STUCK_ACTIONS = {"wait", "rest", "examine", "map"}  # ne changent pas l'écran, et c'est voulu
+NOT_STUCK_ACTIONS = {"wait", "rest", "examine", "map", "attack"}  # « attack » : en combat l'écran bouge à peine  # ne changent pas l'écran, et c'est voulu
 NEW_GAME_BUTTON = [500, 532]  # bouton « New Game » de l'écran de mort (640, 383 sur 1280x720)
 COVERED_CHECKS, COVERED_PAUSE = 20, 3.0  # jeu couvert par une autre fenêtre : on attend jusqu'à 1 min
 
