@@ -223,7 +223,14 @@ Un dossier par partie dans `logs/runs/<date-heure>/` :
 ## Phase 3 : affichage et évaluation (25-26 oct.)
 
 ### Étape 15 : l'écran pour la vidéo
-- [ ] Une fenêtre ou une page à côté du jeu qui affiche : le mode actuel, le raisonnement, le carnet de notes et le dernier `point_2d` dessiné sur la capture
+- [x] `viewer.py` : une fenêtre (tkinter, 720 px de large) à côté du jeu qui affiche le **mode** (badge de couleur), le tour, l'étage et l'objectif, la vie, la **capture du tour avec le `point_2d` dessiné** (cible rouge : clic ; bleue : examiner), l'**action**, le **raisonnement**, pourquoi le modèle est appelé, le **carnet de notes**, et les appels et le coût cumulés. Texte en anglais (public de la vidéo)
+- [x] Elle ne fait que **lire les logs** (`turns.jsonl` et les captures) : aucun lien avec la boucle, aucun appel API
+  - **Direct** : `python viewer.py` suit la partie la plus récente (relit `turns.jsonl` toutes les 0,3 s)
+  - **Rejeu** : `python viewer.py logs/runs/<date-heure> --replay --delay 2` (Espace : pause ; flèches : tour précédent / suivant). Pratique pour la vidéo : on rejoue la meilleure partie et on l'enregistre avec OBS
+- [x] `turns.jsonl` enregistre aussi le carnet de chaque tour, l'étage le plus profond, l'objectif et le modèle
+- [x] Placement : à côté du jeu, sans le recouvrir (sinon le harness se met en pause). Sur cet écran (2160 px de large), le jeu centré ne laisse pas la place : `--move-game` le colle en haut à gauche, la fenêtre se met à droite
+- [x] Testé sans API : rejeu d'une partie de démonstration, et direct pendant une partie scriptée de 3 tours (le jeu n'est pas recouvert)
+- [ ] OBS : ajouter une 2e source « capture de fenêtre » pour `Chonk Dungeon`, à côté du jeu
 
 ### Étape 16 : les parties d'évaluation
 - [ ] Lancer **3 à 5 parties** avec le même réglage (environ 75 min chacune : on les lance et on fait autre chose)

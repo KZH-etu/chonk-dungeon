@@ -207,8 +207,9 @@ class Harness:
                                             "window_open", "inventory_open", "dead")}
         seen["messages"] = [f"[{m['color']}] {m['text']}" for m in state["messages"]]
         record = {"turn": turn, "time": datetime.now().isoformat(timespec="seconds"), "mode": mode,
-                  "floor": self.memory.floor, "reasons": reasons, "state": seen, "screenshot": f"{turn:04}.png",
-                  "decision": decision, "call": call}
+                  "floor": self.memory.floor, "deepest": self.memory.deepest, "goal_floor": self.goal_floor,
+                  "reasons": reasons, "state": seen, "screenshot": f"{turn:04}.png",
+                  "decision": decision, "call": call, "notes": list(self.memory.notes)}
         with (self.run_dir / "turns.jsonl").open("a", encoding="utf-8") as log:
             log.write(json.dumps(record, ensure_ascii=False) + "\n")
 
@@ -293,11 +294,11 @@ class Harness:
                     print("Le cerveau s'arrête.")
                     return "stopped"
             print(f"   -> {decision}")
+            self.memory.apply(decision)  # avant le log : le carnet du tour inclut la note qui vient d'être écrite
             self.log_turn(turn, mode, reasons, state, decision, call)
             if decision.get("reasoning"):
                 with (self.run_dir / "reasoning.txt").open("a", encoding="utf-8") as notes:
                     notes.write(f"{turn}\t{mode}\t{decision['reasoning']}\n")
-            self.memory.apply(decision)
             self.memory.record_action(turn, mode, decision)
             self.execute(decision)
             last_action = decision

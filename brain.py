@@ -169,7 +169,8 @@ class MistralBrain:
     def decide(self, situation):
         messages = self.messages(situation)
         # Ce que le harness enregistre pour ce tour (turns.jsonl) : prompt, réponses brutes, tokens, temps, coût
-        self.last_call = {"prompt": messages[1]["content"][0]["text"], "image": len(messages[1]["content"]) > 1,
+        self.last_call = {"model": self.model, "prompt": messages[1]["content"][0]["text"],
+                          "image": len(messages[1]["content"]) > 1,
                           "responses": [], "tokens_in": 0, "tokens_out": 0, "seconds": 0.0, "cost_usd": 0.0}
         if self.dry_run:
             print("----- prompt (sans appel API) -----")
