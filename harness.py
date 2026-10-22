@@ -14,6 +14,7 @@ Format d'une décision (celui de l'étape 11) :
     {"action": "attack"} / {"action": "loot"}       boutons rouge / bleu
     {"action": "examine", "point_2d": [x, y]}       examiner une case
     {"action": "resume"} / {"action": "wait"} / {"action": "rest"}
+    {"action": "map"}                               carte de l'étage (vue dézoomée, overview.py)
 avec un champ "reasoning" facultatif.
 
 Exemples (sans API) :
@@ -36,6 +37,7 @@ from detectors import changes, new_messages, read_screen, window_rect
 from llm import BUDGET_USD
 from memory import Memory, describe_action
 from ocr import Reader
+from overview import ZOOM_IN_KEY, ZOOM_OUT_KEY, ZOOM_STEPS, build_map, map_to_screen
 
 # Modes, du plus prioritaire au moins prioritaire
 DEAD, MENU, DANGER, COMBAT, ALERT, EXPLORE = "Dead", "Menu", "Danger", "Combat", "Alert", "Exploration"
@@ -69,7 +71,8 @@ def mode_for(state, previous):
 MOVE_KEYS = {"up", "down", "left", "right", "up_left", "up_right", "down_left", "down_right"}
 MOVED = 0.01  # au-delà de 1 % de pixels changés, l'écran a bougé (la caméra suit le héros)
 STUCK_REPEATS = 3
-NOT_STUCK_ACTIONS = {"wait", "rest", "examine"}  # ne changent pas l'écran, et c'est voulu
+NO_MOVE_LIMIT = 3  # déplacements sans effet de suite (même si les cibles diffèrent) -> message STUCK
+NOT_STUCK_ACTIONS = {"wait", "rest", "examine", "map"}  # ne changent pas l'écran, et c'est voulu
 NEW_GAME_BUTTON = [500, 532]  # bouton « New Game » de l'écran de mort (640, 383 sur 1280x720)
 COVERED_CHECKS, COVERED_PAUSE = 20, 3.0  # jeu couvert par une autre fenêtre : on attend jusqu'à 1 min
 
@@ -78,17 +81,20 @@ class WindowCovered(RuntimeError):
     """Une autre fenêtre reste devant le jeu : on ne peut ni voir ni jouer."""
 
 
+def is_move(action):
+    """Clic de déplacement ou pas d'une case."""
+    return bool(action) and (("point_2d" in action and "action" not in action) or action.get("key") in MOVE_KEYS)
+
+
 def describe_reasons(mode, state, previous, last_action, screen_changed=True):
     """Pourquoi on appelle le cerveau, en phrases courtes en anglais (le modèle doit savoir ce qui a changé)."""
     reasons = changes(previous, state) if previous else ["start of the session"]
     if mode == DANGER:
         reasons.insert(0, f"DANGER: HP at {state['hp_ratio']:.0%}")
-    is_move = last_action and (("point_2d" in last_action and "action" not in last_action)
-                               or last_action.get("key") in MOVE_KEYS)
-    if is_move and not screen_changed:
+    if is_move(last_action) and not screen_changed:
         reasons.append("nothing happened: the hero did not move (that tile may be his own tile, a wall,"
                        " or out of reach)")
-    elif is_move and mode == EXPLORE:
+    elif is_move(last_action) and mode == EXPLORE:
         reasons.append("your move is over")
     return reasons or ["next turn"]
 
@@ -107,7 +113,7 @@ def parse_command(text):
         return {"point_2d": numbers, "label": " ".join(words[3:]) or "clic"}
     if verb == "examine" and len(numbers) == 2:
         return {"action": "examine", "point_2d": numbers}
-    if verb in ("attack", "loot", "resume", "wait", "rest"):
+    if verb in ("attack", "loot", "resume", "wait", "rest", "map"):
         return {"action": verb}
     return {"key": verb}
 
@@ -174,6 +180,9 @@ class Harness:
         self.kills = self.items = 0
         self.started = datetime.now()
         self.recent = deque(maxlen=STUCK_REPEATS)  # (action, l'écran a-t-il changé ?)
+        self.no_moves = 0     # déplacements sans effet de suite
+        self.feedback = None  # action refusée par le harness : expliquée au modèle au tour suivant
+        self.map_view = None  # carte affichée (vue dézoomée) : {"picture", "box", "scale"}
 
     def wait_uncovered(self):
         """Met le jeu devant ; si une autre fenêtre le couvre (alerte Windows...), attend qu'elle parte."""
@@ -188,7 +197,17 @@ class Harness:
                             f" {COVERED_CHECKS * COVERED_PAUSE:.0f} s")
 
     def check_stuck(self, last_action, screen_changed):
-        """Même action STUCK_REPEATS fois de suite sans rien changer à l'écran -> message pour le modèle."""
+        """Message STUCK pour le modèle : même action STUCK_REPEATS fois de suite sans rien changer à l'écran,
+        ou NO_MOVE_LIMIT déplacements de suite sans effet (le modèle varie un peu ses clics sans s'en sortir)."""
+        self.no_moves = self.no_moves + 1 if is_move(last_action) and not screen_changed else 0
+        if self.no_moves >= NO_MOVE_LIMIT:
+            moves, self.no_moves = self.no_moves, 0
+            self.recent.clear()
+            print("   Bloqué : déplacements sans effet, on prévient le modèle.")
+            return (f"STUCK: your last {moves} moves did nothing. You can only walk to floor tiles you can see:"
+                    " black areas are unexplored and cannot be clicked, walls cannot be walked on. Click a lit"
+                    " floor tile, an open door or the far end of a visible corridor, or go back through the door"
+                    " you came in and explore another part of the floor.")
         if not last_action or last_action.get("action") in NOT_STUCK_ACTIONS:
             self.recent.clear()
             return None
@@ -201,14 +220,14 @@ class Harness:
                     " nothing changed. Do something different.")
         return None
 
-    def log_turn(self, turn, mode, reasons, state, decision, call):
+    def log_turn(self, turn, mode, reasons, state, decision, call, screenshot=None):
         """Une ligne par tour dans turns.jsonl : ce qui a été vu, envoyé, répondu et joué."""
         seen = {key: state[key] for key in ("hp_ratio", "attack_button", "pickup_button", "enemies_visible",
                                             "window_open", "inventory_open", "dead")}
         seen["messages"] = [f"[{m['color']}] {m['text']}" for m in state["messages"]]
         record = {"turn": turn, "time": datetime.now().isoformat(timespec="seconds"), "mode": mode,
                   "floor": self.memory.floor, "deepest": self.memory.deepest, "goal_floor": self.goal_floor,
-                  "reasons": reasons, "state": seen, "screenshot": f"{turn:04}.png",
+                  "reasons": reasons, "state": seen, "screenshot": screenshot or f"{turn:04}.png",
                   "decision": decision, "call": call, "notes": list(self.memory.notes)}
         with (self.run_dir / "turns.jsonl").open("a", encoding="utf-8") as log:
             log.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -255,6 +274,13 @@ class Harness:
             reasons = describe_reasons(mode, state, previous, last_action, screen_changed)
             if stuck:
                 reasons.insert(0, stuck)
+                lost = mode in (EXPLORE, ALERT) or (mode == COMBAT and not state["attack_button"])
+                if lost and not self.map_view:
+                    self.open_map()  # perdu (aucun ennemi au contact) : la carte, sans attendre qu'il la demande
+                    image, state = self.look()
+            if self.feedback:
+                reasons.insert(0, self.feedback)
+                self.feedback = None
             added = new_messages([m["text"] for m in previous["messages"]],
                                  [m["text"] for m in state["messages"]]) if previous else []
             if self.memory.observe_messages(added):
@@ -263,8 +289,13 @@ class Harness:
             self.items += sum(1 for text in added if text.startswith("You picked up"))
             self.memory.record_outcome(reasons)
             self.memory.save(self.run_dir / "memory.json")
-            print(f"\nTour {turn} [{mode}] étage {self.memory.floor} : " + " ; ".join(reasons))
+            print(f"\nTour {turn} [{mode}] étage {self.memory.floor} : " + " ; ".join(reasons)
+                  + (" [carte]" if self.map_view else ""))
             image.save(self.run_dir / f"{turn:04}.png")
+            screenshot = None
+            if self.map_view:
+                screenshot = f"{turn:04}-map.png"
+                self.map_view["picture"].save(self.run_dir / screenshot)
 
             if mode == DEAD:
                 red = [line["text"] for line in state["messages"] if line["color"] == "red"]
@@ -277,11 +308,18 @@ class Harness:
             call = None  # appel au modèle de ce tour (aucun pour le ramassage automatique)
             if AUTO_PICKUP and state["pickup_button"] and not state["enemies_visible"] and mode != MENU:
                 decision = {"action": "loot", "reasoning": "automatic pickup (no enemy in view)"}
+            elif mode == MENU and self.chasm_window(image):
+                decision = {"key": "close", "reasoning": "chasm: never jump (it does not count), going around"}
+                self.feedback = ("You stepped next to a chasm and the game asked to jump in: the harness said no."
+                                 " Jumping never counts for the goal. Chasm tiles cannot be crossed: walk around"
+                                 " them or explore another part of the floor.")
             else:
                 situation = {
                     "turn": turn, "mode": mode, "reasons": reasons, "state": state,
-                    # Image seulement si l'écran n'est pas que du texte déjà lu
-                    "image": None if self.examined and isinstance(self.examined, str) else resize(image),
+                    # Image seulement si l'écran n'est pas que du texte déjà lu ; la carte à la place de la capture
+                    "image": (self.map_view["picture"] if self.map_view else
+                              None if self.examined and isinstance(self.examined, str) else resize(image)),
+                    "map": self.map_view is not None,
                     "examined": self.examined,
                     "memory": self.memory.to_text(),
                 }
@@ -290,27 +328,75 @@ class Harness:
                 decision = self.brain.decide(situation)
                 call = self.brain.last_call
                 if decision is None:
-                    self.log_turn(turn, mode, reasons, state, None, call)
+                    self.log_turn(turn, mode, reasons, state, None, call, screenshot)
                     print("Le cerveau s'arrête.")
                     return "stopped"
-            print(f"   -> {decision}")
+            refused = self.refuse(decision, state)
+            print(f"   -> {decision}" + (f" : refusée ({refused})" if refused else ""))
             self.memory.apply(decision)  # avant le log : le carnet du tour inclut la note qui vient d'être écrite
-            self.log_turn(turn, mode, reasons, state, decision, call)
+            self.log_turn(turn, mode, reasons, state, decision, call, screenshot)
             if decision.get("reasoning"):
                 with (self.run_dir / "reasoning.txt").open("a", encoding="utf-8") as notes:
                     notes.write(f"{turn}\t{mode}\t{decision['reasoning']}\n")
             self.memory.record_action(turn, mode, decision)
-            self.execute(decision)
+            if refused:
+                self.feedback = refused  # pas jouée : expliqué au modèle au tour suivant
+            elif self.map_view and "point_2d" in decision:
+                # Point sur la carte -> point sur l'écran dézoomé : on agit avant de rezoomer
+                view = self.map_view
+                point = map_to_screen(decision["point_2d"], view["box"], view["scale"], view["picture"].size)
+                self.execute(dict(decision, point_2d=point))
+                self.close_map()
+            else:
+                self.close_map()
+                self.execute(decision)
             last_action = decision
             previous, previous_image = state, image
             image, state = self.look()
         print(f"Limite de {self.max_turns} tours atteinte.")
         return "max_turns"
 
+    def open_map(self):
+        """Dézoome la vue du jeu au maximum et prépare la carte de la partie explorée de l'étage."""
+        if self.map_view:
+            return
+        for _ in range(ZOOM_STEPS):
+            self.actions.press(ZOOM_OUT_KEY, wait=False)
+            time.sleep(0.3)
+        image, _, _ = self.window.wait_stable()
+        picture, box, scale = build_map(image)
+        self.map_view = {"picture": picture, "box": box, "scale": scale}
+
+    def close_map(self):
+        """Remet le zoom normal (sans effet si la carte n'est pas affichée)."""
+        if not self.map_view:
+            return
+        self.map_view = None
+        for _ in range(ZOOM_STEPS):
+            self.actions.press(ZOOM_IN_KEY, wait=False)
+            time.sleep(0.3)
+        self.window.wait_stable()
+
+    def chasm_window(self, image):
+        """La fenêtre ouverte est-elle « voulez-vous sauter dans le gouffre ? » (le harness répond toujours non)."""
+        rect = window_rect(image)
+        text = self.reader.read_window(image.crop(rect)) if rect else ""
+        return "jump into the chasm" in text
+
+    @staticmethod
+    def refuse(decision, state):
+        """Raison de ne pas jouer une décision qui ne peut rien faire, ou None."""
+        if decision.get("action") == "attack" and not state["attack_button"]:
+            return ("attack did nothing: no enemy is next to the hero (there is no red attack button). Click the"
+                    " enemy to walk to it, or wait for it to come to you.")
+        return None
+
     def execute(self, decision):
         action = decision.get("action")
         if action == "examine":
             self.examine(decision["point_2d"])
+        elif action == "map":
+            self.open_map()
         elif action in ("attack", "loot", "resume", "wait", "rest"):
             names = {"loot": "pickup"}
             self.actions.press(names.get(action, action), wait=False)
@@ -379,6 +465,10 @@ def main():
         except Exception:  # une erreur imprévue ne doit pas faire perdre le bilan
             traceback.print_exc()
         finally:
+            try:
+                harness.close_map()  # ne pas laisser le jeu dézoomé
+            except Exception:
+                traceback.print_exc()
             summary = harness.summary(end)
             summary["calls"] = getattr(brain, "calls", 0) - calls_before
             summary["tokens_in"] = getattr(brain, "tokens_in", 0) - tokens_before[0]

@@ -14,7 +14,20 @@ from collections import deque
 HISTORY_SIZE = 8
 MAX_NOTES = 15
 NOTE_MAX_CHARS = 160
+SIMILAR_NOTE = 0.4    # part de mots en commun au-delà de laquelle une note remplace l'ancienne
 FLOOR_MESSAGE = re.compile(r"You (descend|return) to floor (\d+)")
+FLOOR_PREFIX = re.compile(r"^(\(?floor \d+\)?\s*[:,-]?\s*)+", re.IGNORECASE)  # le harness ajoute le sien
+STOP_WORDS = {"the", "a", "an", "of", "to", "is", "in", "on", "at", "for", "and", "or", "it", "i", "be"}
+
+
+def _words(text):
+    return set(re.findall(r"[a-z]+", text.lower())) - STOP_WORDS
+
+
+def similarity(a, b):
+    """Part de mots (hors mots vides) communs à deux notes, de 0 à 1."""
+    a, b = _words(a), _words(b)
+    return len(a & b) / len(a | b) if a | b else 1.0
 
 
 def describe_action(decision):
@@ -50,10 +63,15 @@ class Memory:
 
     # --- carnet ----------------------------------------------------------------
 
-    def add_note(self, text):
-        text = " ".join(str(text).split())[:NOTE_MAX_CHARS]
-        if not text or text in self.notes:
+    def add_note(self, text, prefix=""):
+        """Ajoute une note ; une note presque identique à une note existante la remplace (le modèle a
+        tendance à réécrire la même idée à chaque tour, ce qui remplit le carnet et coûte des tokens)."""
+        text = prefix + " ".join(FLOOR_PREFIX.sub("", str(text)).split())[:NOTE_MAX_CHARS]
+        if not text.strip() or text in self.notes:
             return
+        scores = [similarity(text, note) for note in self.notes]
+        if scores and max(scores) >= SIMILAR_NOTE:
+            self.notes.pop(scores.index(max(scores)))
         self.notes.append(text)
         if len(self.notes) > MAX_NOTES:
             self.notes.pop(0)  # la plus ancienne
@@ -68,7 +86,7 @@ class Memory:
         self.remove_note(decision.get("note_remove"))
         if decision.get("note_add"):
             # L'étage où la note est écrite : une note de l'étage 1 ne vaut plus à l'étage 2
-            self.add_note(f"(floor {self.floor}) {decision['note_add']}")
+            self.add_note(decision["note_add"], prefix=f"(floor {self.floor}) ")
 
     def note_examined(self, text):
         """Ce qui a été examiné : titre et première phrase de la description."""

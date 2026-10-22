@@ -97,7 +97,7 @@ def describe(decision):
     if action == "examine":
         return "examine the marked tile"
     if action:
-        return {"loot": "pick up the item", "attack": "attack the nearest enemy",
+        return {"loot": "pick up the item", "attack": "attack the nearest enemy", "map": "look at the floor map",
                 "rest": "rest", "wait": "wait one turn", "resume": "resume the walk"}.get(action, action)
     label = decision.get("label")
     return "click" + (f": {label}" if label and label != "unknown" else " on the marked tile")

@@ -37,7 +37,7 @@ KEYS = {
 # sur un clavier AZERTY, « w » devient la touche Z du jeu (se reposer). On envoie
 # donc directement les codes de position (scancodes), valables quelle que soit la disposition.
 SCANCODES = {
-    "esc": 0x01, **{str(n): 0x01 + n for n in range(1, 10)}, "0": 0x0B,
+    "esc": 0x01, **{str(n): 0x01 + n for n in range(1, 10)}, "0": 0x0B, "minus": 0x0C, "equals": 0x0D,
     "tab": 0x0F, "q": 0x10, "w": 0x11, "e": 0x12, "r": 0x13, "t": 0x14, "y": 0x15,
     "u": 0x16, "i": 0x17, "o": 0x18, "p": 0x19, "enter": 0x1C,
     "a": 0x1E, "s": 0x1F, "d": 0x20, "f": 0x21, "g": 0x22, "h": 0x23, "j": 0x24,

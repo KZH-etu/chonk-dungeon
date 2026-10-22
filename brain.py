@@ -16,7 +16,8 @@ EXPECTED_TOKENS = 2_600  # estimation d'un appel avec image, avant d'avoir le vr
 SYSTEM_PROMPT = """You are playing Shattered Pixel Dungeon, a turn-based roguelike, through a harness.
 Goal: reach floor 3. You start on floor 1, so you must take a DOWN staircase twice.
 Only DOWN staircases count: never take the UP staircase (the one you arrive by on each floor; examine
-calls it "Depth entrance" and says the stairs lead up).
+calls it "Depth entrance" and says the stairs lead up). Jumping into a chasm never counts: the harness
+always refuses the jump.
 
 How it works
 - Each call you get: why you are called, the screen state read by the harness (HP, buttons, enemies
@@ -27,8 +28,9 @@ How it works
   [1000, 1000] bottom-right). Point at the CENTER of the tile.
 - Memory: you only see one screenshot per call, so the harness keeps for you the current floor, your
   recent actions with what followed (learn from them: do not repeat what did not work), and a notebook.
-  Write a note when you learn something worth keeping (where the down staircase is, a dangerous enemy,
-  what an item does, your plan for this floor); remove notes that are no longer true. Screen positions
+  Write a note when you learn a lasting fact (where the down staircase is, a dead end, a dangerous
+  enemy, what an item does); remove notes that are no longer true. Do not note what you are doing right
+  now: your recent actions are already listed. A note close to an existing one replaces it. Screen positions
   change when the camera moves, so describe places in words ("down stairs in the room north of the
   start"), not with coordinates. What you examine is noted for you automatically.
 
@@ -38,11 +40,15 @@ Actions
   staircase by clicking it, or press a button inside an open window.
 - examine (point_2d): the game describes what is on that tile (monster, item, trap, terrain).
   It takes no game turn. When you are not sure what something is, examine it instead of guessing.
-- attack: attack the enemy shown on the red button (nearest enemy).
+- attack: attack the enemy shown on the red button (nearest enemy). Only when the red button is shown:
+  otherwise no enemy is next to the hero and the harness refuses it.
 - loot: pick up the item under the hero (blue button).
 - key (key): press a game key, e.g. a one-tile step (up, down, left, right, up_left, up_right,
   down_left, down_right), inventory, journal, hero_info, close (closes a window), quickslot_1..6.
 - wait: skip one turn. rest: rest until healed or disturbed. resume: continue an interrupted walk.
+- map: see the MAP of everything explored on this floor (takes no game turn). Use it when you do not
+  know where to go, before going back, or to find unexplored doors and corridors. On the map, the hero
+  is in the yellow circle, and you can click any explored tile to walk there in one go.
 
 What the screen shows
 - The camera follows the hero: he is at the center of the screen, around [500, 500] (higher, around
@@ -56,7 +62,12 @@ What the screen shows
 
 Play well
 - Explore with FAR targets: one click walks the whole path. Aim for doors, corridor openings and the
-  edges of explored areas (unexplored parts are black). Do not click tiles next to the hero to explore.
+  edges of explored areas. Do not click tiles next to the hero to explore.
+- You can only walk to tiles you have already seen. Black areas are unexplored: clicking them does
+  nothing. Click the last lit floor tile at the edge of the black area; the hero sees further from there.
+  Walls cannot be walked on.
+- When a way is blocked, do not insist: go back and take another door or corridor. Floors have many.
+- Items lying on the floor: walk onto them, the harness picks them up.
 - Explore each floor to find items and the down staircase, then go down.
 - Fight one enemy at a time, ideally in a corridor or a doorway. Do not walk into several enemies.
 - Sewer snakes dodge a lot. To hit them reliably, attack a snake when it stands on a DOOR tile right
@@ -76,7 +87,7 @@ _SCHEMA = {
     "properties": {
         "reasoning": {"type": "string"},
         "action": {"type": "string",
-                   "enum": ["click", "examine", "attack", "loot", "key", "wait", "rest", "resume"]},
+                   "enum": ["click", "examine", "attack", "loot", "key", "wait", "rest", "resume", "map"]},
         "point_2d": {"anyOf": [_POINT, {"type": "null"}]},
         "key": {"anyOf": [{"type": "string", "enum": sorted(KEYS)}, {"type": "null"}]},
         "label": {"anyOf": [{"type": "string"}, {"type": "null"}]},
@@ -107,6 +118,11 @@ def situation_text(situation):
                   for line in state["messages"]]
     if situation.get("memory"):
         lines.append(situation["memory"])
+    if situation.get("map"):
+        lines.append("The image is the MAP of the explored part of this floor (zoomed-out view), not the usual"
+                     " screenshot. The hero is in the yellow circle. Black = unexplored. Any point_2d you give now"
+                     " is on this map: click an explored tile to walk there in one go (doors, corridor ends, the"
+                     " down staircase). The harness goes back to the normal view after your action.")
     examined = situation.get("examined")
     if isinstance(examined, str):
         lines.append(f"Examine result: {examined}")
@@ -138,7 +154,7 @@ def _action(answer):
         return {"action": "examine", "point_2d": point, "reasoning": reasoning}
     if action == "key" and answer.get("key") in KEYS:
         return {"key": answer["key"], "reasoning": reasoning}
-    if action in ("attack", "loot", "wait", "rest", "resume"):
+    if action in ("attack", "loot", "wait", "rest", "resume", "map"):
         return {"action": action, "reasoning": reasoning}
     return None
 

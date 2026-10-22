@@ -238,6 +238,21 @@ Un dossier par partie dans `logs/runs/<date-heure>/` :
 - [ ] Pour la vidéo, **une seule bonne partie suffit** : le jury regarde 2 minutes, pas des statistiques
 - [ ] Calculer : étage moyen et maximum, causes de mort, coût moyen par partie
 
+**Partie 1 (22/10, `logs/runs/20261022-140841`)** : arrêtée à la main au tour 40, étage 1, 2 ennemis tués, 39 appels, 0,146 $ (~0,0037 $ par appel : le carnet plein grossit le prompt). Ce qui n'allait pas :
+- « attack » choisi 3 fois sans bouton rouge (rat endormi à 3 cases) → **le harness refuse « attack » sans bouton rouge** et l'explique au modèle
+- Tours 14 à 40 : coincé à l'entrée d'une petite salle dont le sol est un gouffre. Clics dans le noir (zone inexplorée : rien ne se passe) puis ~15 clics sur le mur au-dessus du héros, avec des cibles toujours un peu différentes, donc la détection « même action 3 fois » ne se déclenchait presque pas → **3 déplacements sans effet de suite, quelles que soient les cibles, déclenchent un message STUCK** qui explique quoi faire
+- La fenêtre « sauter dans le gouffre ? » est apparue 5 fois (le modèle a bien répondu non) → **le harness la lit et répond non tout seul**, sans appel : sauter ne compte pas pour l'objectif
+- Une note presque à chaque tour, toujours la même idée (« chasm blocks east… »), avec le préfixe d'étage en double → **une note proche d'une note existante la remplace** (40 % de mots communs ; 15 notes → 9 sur cette partie) ; le prompt demande des faits durables, pas ce qu'il fait en ce moment
+- Objets ignorés (objet laissé par le serpent, tas d'or) et retour dans la salle de départ → prompt : marcher sur les objets, les cases noires ne se cliquent pas, changer de chemin quand un passage est bloqué
+- Ce qui a bien marché : clics précis sur les ennemis, sur la porte du bas et sur le bouton « No » de la fenêtre
+
+**Carte de l'étage (`overview.py`, action « map »)** : le modèle ne voit qu'un écran et oublie ce qu'il a exploré. Le jeu n'a pas de minicarte, mais sa vue se dézoome (touche « - », 2 crans jusqu'au zoom minimal, « = » pour revenir ; la molette est moins fiable). Au zoom minimal, tout l'étage exploré tient à l'écran.
+- [x] Le harness dézoome, recadre la capture sur la partie explorée (le noir, l'interface et le texte du journal sont ignorés), l'agrandit à la taille d'une capture normale et entoure le héros en jaune. La carte remplace la capture de ce tour : **même coût**, seulement quand elle sert
+- [x] Le modèle peut **cliquer sur la carte** pour traverser l'étage en un clic : le harness convertit le point, clique tant que la vue est dézoomée, puis rezoome
+- [x] Ouverte par l'action « map » (le modèle la demande quand il est perdu) et **automatiquement avec le message STUCK** (sans ennemi au contact)
+- [x] Testé sans API : clic sur le tas d'or de la carte → le héros traverse l'étage et ramasse l'or, zoom normal retrouvé ; 3 clics inutiles → STUCK + carte automatique, puis zoom normal. Le zoom est aussi remis à la fin de la partie, même après une erreur
+- [ ] À valider en vraie partie : le modèle s'en sert-il bien, et vise-t-il juste sur la carte ?
+
 ---
 
 ## Phase 4 : livraison (27-28 oct.)
