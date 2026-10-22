@@ -38,6 +38,8 @@ def describe_action(decision):
     point = decision.get("point_2d")
     if action == "examine":
         return f"examine {point}"
+    if action == "move":
+        return "move " + ",".join(decision.get("steps") or [])
     if action:
         return action
     label = decision.get("label")

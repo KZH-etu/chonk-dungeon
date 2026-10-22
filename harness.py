@@ -10,6 +10,7 @@ Le cerveau est interchangeable :
 
 Format d'une décision (celui de l'étape 11) :
     {"key": "up"}                                   touche (nom de actions.KEYS)
+    {"action": "move", "steps": ["right", "down"]}  pas au clavier, un par un (s'arrête si bloqué)
     {"point_2d": [x, y], "label": "..."}            clic (0-1000) : se déplacer, interagir
     {"action": "attack"} / {"action": "loot"}       boutons rouge / bleu
     {"action": "examine", "point_2d": [x, y]}       examiner une case
@@ -72,6 +73,7 @@ MOVE_KEYS = {"up", "down", "left", "right", "up_left", "up_right", "down_left", 
 MOVED = 0.01  # au-delà de 1 % de pixels changés, l'écran a bougé (la caméra suit le héros)
 STUCK_REPEATS = 3
 NO_MOVE_LIMIT = 3  # déplacements sans effet de suite (même si les cibles diffèrent) -> message STUCK
+MAX_STEPS = 10     # pas au plus par action « move »
 NOT_STUCK_ACTIONS = {"wait", "rest", "examine", "map"}  # ne changent pas l'écran, et c'est voulu
 NEW_GAME_BUTTON = [500, 532]  # bouton « New Game » de l'écran de mort (640, 383 sur 1280x720)
 COVERED_CHECKS, COVERED_PAUSE = 20, 3.0  # jeu couvert par une autre fenêtre : on attend jusqu'à 1 min
@@ -82,8 +84,9 @@ class WindowCovered(RuntimeError):
 
 
 def is_move(action):
-    """Clic de déplacement ou pas d'une case."""
-    return bool(action) and (("point_2d" in action and "action" not in action) or action.get("key") in MOVE_KEYS)
+    """Clic de déplacement, pas d'une case ou suite de pas."""
+    return bool(action) and (("point_2d" in action and "action" not in action) or action.get("key") in MOVE_KEYS
+                             or action.get("action") == "move")
 
 
 def describe_reasons(mode, state, previous, last_action, screen_changed=True):
@@ -113,6 +116,8 @@ def parse_command(text):
         return {"point_2d": numbers, "label": " ".join(words[3:]) or "clic"}
     if verb == "examine" and len(numbers) == 2:
         return {"action": "examine", "point_2d": numbers}
+    if verb == "move":
+        return {"action": "move", "steps": words[1:]}
     if verb in ("attack", "loot", "resume", "wait", "rest", "map"):
         return {"action": verb}
     return {"key": verb}
@@ -183,6 +188,7 @@ class Harness:
         self.no_moves = 0     # déplacements sans effet de suite
         self.feedback = None  # action refusée par le harness : expliquée au modèle au tour suivant
         self.map_view = None  # carte affichée (vue dézoomée) : {"picture", "box", "scale"}
+        self.walked = 0       # pas réellement faits par le dernier « move »
 
     def wait_uncovered(self):
         """Met le jeu devant ; si une autre fenêtre le couvre (alerte Windows...), attend qu'elle parte."""
@@ -266,6 +272,8 @@ class Harness:
         for turn in range(1, self.max_turns + 1):
             self.turns = turn
             screen_changed = previous_image is None or changed_fraction(previous_image, image) > MOVED
+            if last_action and last_action.get("action") == "move":
+                screen_changed = self.walked > 0  # un aller-retour ramène le même écran, mais le héros a bougé
             stuck = self.check_stuck(last_action, screen_changed)
             if stuck and state["window_open"]:
                 self.actions.press("close")  # sans fenêtre, Échap ouvrirait le menu du jeu
@@ -397,6 +405,8 @@ class Harness:
             self.examine(decision["point_2d"])
         elif action == "map":
             self.open_map()
+        elif action == "move":
+            self.feedback = self.walk(decision.get("steps") or [])
         elif action in ("attack", "loot", "resume", "wait", "rest"):
             names = {"loot": "pickup"}
             self.actions.press(names.get(action, action), wait=False)
@@ -409,6 +419,28 @@ class Harness:
         else:
             print(f"   décision inconnue, on attend : {decision}")
             self.actions.press("wait")
+
+    def walk(self, steps):
+        """Joue les pas un par un. S'arrête si un pas ne fait pas bouger le héros (mur, obstacle) ou si
+        quelque chose change (ennemi, objet, vie, fenêtre, message). Renvoie le compte rendu pour le modèle."""
+        steps = [step for step in steps if step in MOVE_KEYS][:MAX_STEPS]
+        self.walked = 0
+        if not steps:
+            return "move: no valid step given (use up, down, left, right, up_left, up_right, down_left, down_right)."
+        before_image, before_state = self.window.grab(), self.state
+        for done, step in enumerate(steps):
+            self.actions.press(step, wait=False)
+            image, _, _ = self.window.wait_stable(timeout=3.0)
+            state = read_screen(image, self.reader)
+            if changed_fraction(before_image, image) <= MOVED:
+                return (f"move: {done} of {len(steps)} steps done, then '{step}' was blocked (a wall or an"
+                        " obstacle is there): the hero did not move.")
+            self.walked = done + 1
+            happened = changes(before_state, state) if before_state else []
+            if happened and done + 1 < len(steps):
+                return f"move: stopped after {done + 1} of {len(steps)} steps because: " + "; ".join(happened)
+            before_image, before_state = image, state
+        return f"move: all {len(steps)} steps done."
 
     def examine(self, point_2d):
         """E (comme la loupe), clic sur la case, lecture de la fenêtre de description, puis fermeture."""

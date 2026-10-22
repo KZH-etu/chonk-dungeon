@@ -54,6 +54,8 @@ def hud_offset(rgb):
     Utile pour les captures de référence recadrées à la main : on se cale sur la barre de vie.
     """
     height = rgb.shape[0]
+    if rgb.shape[:2] == (720, 1280):
+        return 0, 0  # capture du harness (zone client entière) ; une icône d'état rouge tromperait la recherche
     zone = rgb[height - 80:height, 0:200].astype(int)
     red = (zone[..., 0] > 80) & (zone[..., 0] > 2 * zone[..., 1]) & (zone[..., 0] > 1.5 * zone[..., 2])
     rows = np.where(red.sum(1) > 50)[0]

@@ -251,7 +251,15 @@ Un dossier par partie dans `logs/runs/<date-heure>/` :
 - [x] Le modèle peut **cliquer sur la carte** pour traverser l'étage en un clic : le harness convertit le point, clique tant que la vue est dézoomée, puis rezoome
 - [x] Ouverte par l'action « map » (le modèle la demande quand il est perdu) et **automatiquement avec le message STUCK** (sans ennemi au contact)
 - [x] Testé sans API : clic sur le tas d'or de la carte → le héros traverse l'étage et ramasse l'or, zoom normal retrouvé ; 3 clics inutiles → STUCK + carte automatique, puis zoom normal. Le zoom est aussi remis à la fin de la partie, même après une erreur
-- [ ] À valider en vraie partie : le modèle s'en sert-il bien, et vise-t-il juste sur la carte ?
+- [x] Validé en partie 2 : le modèle l'a demandée 10 fois et ses clics sur la carte font bien bouger le héros
+
+**Partie 2 (22/10, `logs/runs/20261022-151106`)** : arrêtée à la main au tour 74, étage 1, 2 rats tués, 74 appels, 0,272 $. La carte sert et le carnet est propre (3 notes), mais l'exploration reste lente : 17 clics sans effet sur 74 tours (petits pas, clics dans le noir, y compris sur la carte), objets ignorés (clé, coffre, potion), faux STUCK en combat (« attack » 3 fois alors que la vie baisse).
+
+**Déplacements au clavier (action « move »)** :
+- [x] Grille mesurée : au zoom normal, une case fait **48 px** (26 × 15 cases à l'écran) et **le héros est toujours sur la case centrale** (à 5 px près sur toutes les captures des parties 1 et 2)
+- [x] Le modèle donne une liste de pas (8 directions, 10 au plus) ; le harness les joue un par un et **s'arrête au premier pas bloqué** (l'écran ne bouge pas : mur, obstacle) ou dès que quelque chose change (ennemi, objet, vie, fenêtre, message), puis le dit au modèle. Le clic ne sert plus qu'aux fenêtres et à la carte
+- [x] Testé sans API : les 4 directions droites et les 4 diagonales marchent ; « right » ×10 s'arrête au 3e pas sur un tonneau, « down_left » ×4 au 2e pas sur le mur
+- [ ] Reconnaître les cases (sol, mur, porte, gouffre…) pour dire au modèle les directions libres et repérer les cibles : étiquetage automatique avec la loupe du jeu, puis classifieur Python (sans coût API)
 
 ---
 

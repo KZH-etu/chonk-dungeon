@@ -35,16 +35,21 @@ How it works
   start"), not with coordinates. What you examine is noted for you automatically.
 
 Actions
-- click (point_2d): walk to a tile (the hero walks the whole path on his own and stops if something
-  happens), open a door by walking into it, attack an adjacent enemy by clicking it, take the down
-  staircase by clicking it, or press a button inside an open window.
+- move (steps): THE way to walk on the normal screen. A list of one-tile steps played with the keyboard,
+  e.g. ["right", "right", "right", "down"] (up, down, left, right, up_left, up_right, down_left,
+  down_right; at most 10). Count the tiles on the screenshot: the hero's tile is in the center, one tile
+  is about 37 wide and 67 tall in point_2d units. Walking into a door opens it; walking into an adjacent
+  enemy attacks it; stepping onto the down staircase takes it. The harness plays the steps one by one
+  and stops early if a step is blocked (wall, obstacle) or if something happens (enemy, item, message),
+  then tells you how many steps were done.
+- click (point_2d): press a button inside an open window, or, on the MAP view only, walk far to an
+  explored tile in one go. Do not click to walk on the normal screen: use move.
 - examine (point_2d): the game describes what is on that tile (monster, item, trap, terrain).
   It takes no game turn. When you are not sure what something is, examine it instead of guessing.
 - attack: attack the enemy shown on the red button (nearest enemy). Only when the red button is shown:
   otherwise no enemy is next to the hero and the harness refuses it.
 - loot: pick up the item under the hero (blue button).
-- key (key): press a game key, e.g. a one-tile step (up, down, left, right, up_left, up_right,
-  down_left, down_right), inventory, journal, hero_info, close (closes a window), quickslot_1..6.
+- key (key): press a game key: inventory, journal, hero_info, close (closes a window), quickslot_1..6.
 - wait: skip one turn. rest: rest until healed or disturbed. resume: continue an interrupted walk.
 - map: see the MAP of everything explored on this floor (takes no game turn). Use it when you do not
   know where to go, before going back, or to find unexplored doors and corridors. On the map, the hero
@@ -61,11 +66,10 @@ What the screen shows
 - Anything else you do not recognize: use examine.
 
 Play well
-- Explore with FAR targets: one click walks the whole path. Aim for doors, corridor openings and the
-  edges of explored areas. Do not click tiles next to the hero to explore.
-- You can only walk to tiles you have already seen. Black areas are unexplored: clicking them does
-  nothing. Click the last lit floor tile at the edge of the black area; the hero sees further from there.
-  Walls cannot be walked on.
+- Explore with long moves (up to 10 steps) toward doors, corridor openings and the edges of the explored
+  area. For a place far away, open the map and click it there.
+- Black areas are unexplored: walk to the edge of the lit area, the hero sees further from there.
+  Walls cannot be walked through: if a step is blocked, look again and go around.
 - When a way is blocked, do not insist: go back and take another door or corridor. Floors have many.
 - Items lying on the floor: walk onto them, the harness picks them up.
 - Explore each floor to find items and the down staircase, then go down.
@@ -82,19 +86,22 @@ Answer
   or null. Most turns need no note."""
 
 _POINT = {"type": "array", "items": {"type": "integer"}}
+_DIRECTIONS = ["up", "down", "left", "right", "up_left", "up_right", "down_left", "down_right"]
 _SCHEMA = {
     "type": "object",
     "properties": {
         "reasoning": {"type": "string"},
         "action": {"type": "string",
-                   "enum": ["click", "examine", "attack", "loot", "key", "wait", "rest", "resume", "map"]},
+                   "enum": ["move", "click", "examine", "attack", "loot", "key", "wait", "rest", "resume",
+                            "map"]},
+        "steps": {"anyOf": [{"type": "array", "items": {"type": "string", "enum": _DIRECTIONS}}, {"type": "null"}]},
         "point_2d": {"anyOf": [_POINT, {"type": "null"}]},
         "key": {"anyOf": [{"type": "string", "enum": sorted(KEYS)}, {"type": "null"}]},
         "label": {"anyOf": [{"type": "string"}, {"type": "null"}]},
         "note_add": {"anyOf": [{"type": "string"}, {"type": "null"}]},
         "note_remove": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
     },
-    "required": ["reasoning", "action", "point_2d", "key", "label", "note_add", "note_remove"],
+    "required": ["reasoning", "action", "steps", "point_2d", "key", "label", "note_add", "note_remove"],
     "additionalProperties": False,
 }
 RESPONSE_FORMAT = {"type": "json_schema",
@@ -146,6 +153,9 @@ def to_decision(answer):
 def _action(answer):
     action = answer.get("action")
     point = answer.get("point_2d")
+    steps = answer.get("steps")
+    if action == "move" and isinstance(steps, list) and steps:
+        return {"action": "move", "steps": steps, "reasoning": answer.get("reasoning", "")}
     has_point = isinstance(point, list) and len(point) == 2
     reasoning = answer.get("reasoning", "")
     if action == "click" and has_point:
