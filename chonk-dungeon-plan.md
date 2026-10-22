@@ -209,9 +209,14 @@ pip install mistralai mss pyautogui pillow pygetwindow numpy
 - [x] Erreur imprévue ou Ctrl+C : le bilan est quand même enregistré
 
 ### Étape 14 : logs
-- [ ] Un dossier par partie : capture, prompt, réponse, action, tokens et temps, pour chaque tour
-- [ ] Un `run_summary.json` : étage atteint, tours, ennemis tués, cause de la mort, **nombre d'appels et coût total**
-- [ ] Un total cumulé de toutes les parties, pour suivre le budget restant
+Un dossier par partie dans `logs/runs/<date-heure>/` :
+
+- [x] `0001.png`, `0002.png`... : la capture de chaque tour (pleine résolution)
+- [x] `turns.jsonl` : une ligne par tour avec le mode, l'étage, les raisons de l'appel, l'état lu à l'écran (vie, boutons, ennemis, fenêtre, journal), la décision, et l'appel au modèle (prompt envoyé, image jointe ou non, réponses brutes, tokens, temps, coût). `null` quand aucun appel (ramassage automatique)
+- [x] `reasoning.txt` (raisonnement de chaque tour) et `memory.json` (carnet, historique, étage), pour la vidéo
+- [x] `run_summary.json` : fin de partie, étage atteint, tours, **ennemis tués**, **objets ramassés**, cause de la mort, **appels, tokens et coût**, durée
+- [x] **Total cumulé** : `python budget.py` additionne les parties (`run_summary.json`) et les tests de vision (`results.json`), plus `logs/budget_extra.json` pour les dépenses absentes des logs ; affiche le reste sur 10 $. Le harness l'affiche en fin de session. Estimation : la console Mistral fait foi
+  - Au 22/10 : **0,161 $ sur 10 $** selon les logs (43 appels), un peu sous-estimé car les tout premiers tests de vision (20/10) ne sont plus dans `logs/`
 
 ---
 

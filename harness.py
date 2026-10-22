@@ -30,8 +30,10 @@ from collections import deque
 from datetime import datetime
 
 from actions import Actions
+from budget import spent
 from capture import LOGS_DIR, GameWindow, changed_fraction, resize
 from detectors import changes, new_messages, read_screen, window_rect
+from llm import BUDGET_USD
 from memory import Memory, describe_action
 from ocr import Reader
 
@@ -169,6 +171,7 @@ class Harness:
         self.state = None     # dernier état lu à l'écran
         self.turns = 0
         self.death_cause = None
+        self.kills = self.items = 0
         self.started = datetime.now()
         self.recent = deque(maxlen=STUCK_REPEATS)  # (action, l'écran a-t-il changé ?)
 
@@ -198,10 +201,22 @@ class Harness:
                     " nothing changed. Do something different.")
         return None
 
+    def log_turn(self, turn, mode, reasons, state, decision, call):
+        """Une ligne par tour dans turns.jsonl : ce qui a été vu, envoyé, répondu et joué."""
+        seen = {key: state[key] for key in ("hp_ratio", "attack_button", "pickup_button", "enemies_visible",
+                                            "window_open", "inventory_open", "dead")}
+        seen["messages"] = [f"[{m['color']}] {m['text']}" for m in state["messages"]]
+        record = {"turn": turn, "time": datetime.now().isoformat(timespec="seconds"), "mode": mode,
+                  "floor": self.memory.floor, "reasons": reasons, "state": seen, "screenshot": f"{turn:04}.png",
+                  "decision": decision, "call": call}
+        with (self.run_dir / "turns.jsonl").open("a", encoding="utf-8") as log:
+            log.write(json.dumps(record, ensure_ascii=False) + "\n")
+
     def summary(self, end):
         """Bilan de la partie (complété par main avec les appels et le coût)."""
         return {"end": end, "floor": self.memory.floor, "deepest_floor": self.memory.deepest,
                 "goal_floor": self.goal_floor, "turns": self.turns, "death_cause": self.death_cause,
+                "enemies_killed": self.kills, "items_picked": self.items,
                 "started": self.started.isoformat(timespec="seconds"),
                 "ended": datetime.now().isoformat(timespec="seconds"),
                 "minutes": round((datetime.now() - self.started).total_seconds() / 60, 1)}
@@ -239,9 +254,12 @@ class Harness:
             reasons = describe_reasons(mode, state, previous, last_action, screen_changed)
             if stuck:
                 reasons.insert(0, stuck)
-            if previous and self.memory.observe_messages(
-                    new_messages([m["text"] for m in previous["messages"]], [m["text"] for m in state["messages"]])):
+            added = new_messages([m["text"] for m in previous["messages"]],
+                                 [m["text"] for m in state["messages"]]) if previous else []
+            if self.memory.observe_messages(added):
                 reasons.insert(0, f"you are now on floor {self.memory.floor}")
+            self.kills += sum(1 for text in added if text.startswith("You defeated"))
+            self.items += sum(1 for text in added if text.startswith("You picked up"))
             self.memory.record_outcome(reasons)
             self.memory.save(self.run_dir / "memory.json")
             print(f"\nTour {turn} [{mode}] étage {self.memory.floor} : " + " ; ".join(reasons))
@@ -255,6 +273,7 @@ class Harness:
             if self.goal_floor and self.memory.deepest >= self.goal_floor:
                 print(f"Objectif atteint : étage {self.memory.deepest}.")
                 return "goal"
+            call = None  # appel au modèle de ce tour (aucun pour le ramassage automatique)
             if AUTO_PICKUP and state["pickup_button"] and not state["enemies_visible"] and mode != MENU:
                 decision = {"action": "loot", "reasoning": "automatic pickup (no enemy in view)"}
             else:
@@ -266,11 +285,15 @@ class Harness:
                     "memory": self.memory.to_text(),
                 }
                 self.examined = None
+                self.brain.last_call = None
                 decision = self.brain.decide(situation)
+                call = self.brain.last_call
                 if decision is None:
+                    self.log_turn(turn, mode, reasons, state, None, call)
                     print("Le cerveau s'arrête.")
                     return "stopped"
             print(f"   -> {decision}")
+            self.log_turn(turn, mode, reasons, state, decision, call)
             if decision.get("reasoning"):
                 with (self.run_dir / "reasoning.txt").open("a", encoding="utf-8") as notes:
                     notes.write(f"{turn}\t{mode}\t{decision['reasoning']}\n")
@@ -342,6 +365,7 @@ def main():
         harness = Harness(brain, max_turns=args.max_turns, goal_floor=args.goal_floor or None)
         print(f"\n=== Partie {game}/{args.games} : captures dans {harness.run_dir}")
         calls_before, cost_before = getattr(brain, "calls", 0), getattr(brain, "cost", 0.0)
+        tokens_before = getattr(brain, "tokens_in", 0), getattr(brain, "tokens_out", 0)
         end = "error"
         try:
             end = harness.run()
@@ -356,6 +380,8 @@ def main():
         finally:
             summary = harness.summary(end)
             summary["calls"] = getattr(brain, "calls", 0) - calls_before
+            summary["tokens_in"] = getattr(brain, "tokens_in", 0) - tokens_before[0]
+            summary["tokens_out"] = getattr(brain, "tokens_out", 0) - tokens_before[1]
             summary["cost_usd"] = round(getattr(brain, "cost", 0.0) - cost_before, 4)
             summary["model"] = getattr(brain, "model", args.brain)
             harness.memory.save(harness.run_dir / "memory.json")
@@ -366,6 +392,8 @@ def main():
             break
     if hasattr(brain, "summary"):
         print(f"\nBilan de la session : {brain.summary()}")
+        print(f"Budget : {spent():.3f} $ dépensés en tout (selon les logs), reste {BUDGET_USD - spent():.2f} $"
+              " (détail : python budget.py)")
 
 
 if __name__ == "__main__":

@@ -168,6 +168,9 @@ class MistralBrain:
 
     def decide(self, situation):
         messages = self.messages(situation)
+        # Ce que le harness enregistre pour ce tour (turns.jsonl) : prompt, réponses brutes, tokens, temps, coût
+        self.last_call = {"prompt": messages[1]["content"][0]["text"], "image": len(messages[1]["content"]) > 1,
+                          "responses": [], "tokens_in": 0, "tokens_out": 0, "seconds": 0.0, "cost_usd": 0.0}
         if self.dry_run:
             print("----- prompt (sans appel API) -----")
             print(messages[1]["content"][0]["text"])
@@ -193,6 +196,11 @@ class MistralBrain:
             call_cost = cost_usd(self.model, usage)
             self.cost += call_cost
             text = response.choices[0].message.content or ""
+            self.last_call["responses"].append(text)
+            self.last_call["tokens_in"] += usage.prompt_tokens
+            self.last_call["tokens_out"] += usage.completion_tokens
+            self.last_call["seconds"] = round(self.last_call["seconds"] + seconds, 2)
+            self.last_call["cost_usd"] = round(self.last_call["cost_usd"] + call_cost, 5)
             print(f"   [{self.model}] {usage.prompt_tokens} + {usage.completion_tokens} tokens,"
                   f" {seconds:.1f} s, {call_cost:.4f} $ (partie : {self.cost:.3f} $)")
             try:
