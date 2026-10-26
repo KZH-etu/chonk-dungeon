@@ -10,7 +10,8 @@ from actions import KEYS
 from capture import to_data_url
 from llm import RateLimiter, complete, cost_usd, default_model, make_client
 
-MAX_TOKENS = 300
+MAX_TOKENS = 500  # un plan de plusieurs actions est plus long qu'une action seule
+MAX_PLAN = 5      # actions au plus par réponse
 EXPECTED_TOKENS = 2_600  # estimation d'un appel avec image, avant d'avoir le vrai chiffre
 
 SYSTEM_PROMPT = """You are playing Shattered Pixel Dungeon, a turn-based roguelike, through a harness.
@@ -22,8 +23,14 @@ always refuses the jump.
 How it works
 - Each call you get: why you are called, the screen state read by the harness (HP, buttons, enemies
   in view), the game log as text, often a screenshot, and sometimes the text of an examined tile.
-- You answer with ONE action. The harness plays it, waits until the screen is still, and calls you
-  again when something matters (a long walk is a single call).
+- You answer with a PLAN: a list of 1 to 5 actions, played in order. The harness plays them, waits
+  until the screen is still, and calls you again when the plan is over. If something changes on the way
+  (an enemy appears, HP drops, a window opens, an item, a log message...), the rest of the plan is dropped
+  and you are told why: plan only what is safe from what you see now. One or two actions is often enough.
+  Good plans: ["attack", "attack", "attack"] against one weak enemy next to you; ["wait", "wait", "wait"]
+  next to a doorway until an enemy steps in (the plan stops as soon as it is next to you); ["loot",
+  "move ..."]; ["rest", "move ..."].
+- click, examine and map always come alone (a plan of one action): you need to see their result first.
 - Positions: "point_2d": [x, y], normalized 0-1000 on the screenshot ([0, 0] top-left,
   [1000, 1000] bottom-right). Point at the CENTER of the tile.
 - Memory: you only see one screenshot per call, so the harness keeps for you the current floor, your
@@ -81,16 +88,18 @@ Play well
 
 Answer
 - "reasoning": one short sentence (max 20 words), shown to viewers.
-- "action" and its fields; set unused fields to null. "label": what is at point_2d ("unknown" if unsure).
+- "goal": your current objective in a few words ("explore the corridor east of the start room", "kill the
+  rat", "find the down stairs"). It is shown to you next call: keep it until it is done, then set a new one.
+- "plan": 1 to 5 actions; in each, set the fields the action does not use to null. "label": what is at
+  point_2d ("unknown" if unsure).
 - "note_add": a short note to add to your notebook, or null. "note_remove": number of a note to delete,
   or null. Most turns need no note."""
 
 _POINT = {"type": "array", "items": {"type": "integer"}}
 _DIRECTIONS = ["up", "down", "left", "right", "up_left", "up_right", "down_left", "down_right"]
-_SCHEMA = {
+_ACTION = {
     "type": "object",
     "properties": {
-        "reasoning": {"type": "string"},
         "action": {"type": "string",
                    "enum": ["move", "click", "examine", "attack", "loot", "key", "wait", "rest", "resume",
                             "map"]},
@@ -98,10 +107,20 @@ _SCHEMA = {
         "point_2d": {"anyOf": [_POINT, {"type": "null"}]},
         "key": {"anyOf": [{"type": "string", "enum": sorted(KEYS)}, {"type": "null"}]},
         "label": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+    },
+    "required": ["action", "steps", "point_2d", "key", "label"],
+    "additionalProperties": False,
+}
+_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "reasoning": {"type": "string"},
+        "goal": {"type": "string"},
+        "plan": {"type": "array", "items": _ACTION},
         "note_add": {"anyOf": [{"type": "string"}, {"type": "null"}]},
         "note_remove": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
     },
-    "required": ["reasoning", "action", "steps", "point_2d", "key", "label", "note_add", "note_remove"],
+    "required": ["reasoning", "goal", "plan", "note_add", "note_remove"],
     "additionalProperties": False,
 }
 RESPONSE_FORMAT = {"type": "json_schema",
@@ -118,6 +137,7 @@ def situation_text(situation):
         f"Screen state: HP {state['hp_ratio']:.0%}; attack button: {yes_no(state['attack_button'])};"
         f" pickup button: {yes_no(state['pickup_button'])}; enemies in view: {yes_no(state['enemies_visible'])};"
         f" inventory panel open: {yes_no(state['inventory_open'])}; window open: {yes_no(state['window_open'])}.",
+        "Usable now: " + ", ".join(usable_actions(situation)) + ".",
     ]
     if state["messages"]:
         lines.append("Game log (oldest first):")
@@ -140,32 +160,54 @@ def situation_text(situation):
     return "\n".join(lines)
 
 
+def usable_actions(situation):
+    """Les actions qui peuvent servir maintenant, d'après l'écran (comme une liste de coups légaux)."""
+    state = situation["state"]
+    if situation.get("map"):
+        return ["click (an explored tile of the map, to walk there)"]
+    if state["window_open"]:
+        return ["click (a button of the window)", "key close"]
+    usable = ["move", "examine", "map", "wait", "rest", "key"]
+    usable.append("attack (red button shown)" if state["attack_button"] else
+                  "NOT attack (no red button: no enemy next to you)")
+    if state["pickup_button"]:
+        usable.append("loot (blue button shown)")
+    return usable
+
+
 def to_decision(answer):
-    """Réponse du modèle -> décision du harness (None si incomplète), avec les changements de carnet."""
-    decision = _action(answer)
-    if decision:
-        for field in ("note_add", "note_remove"):
-            if answer.get(field) is not None:
-                decision[field] = answer[field]
+    """Réponse du modèle -> décision du harness (None si aucune action utilisable), avec le but et les
+    changements de carnet. Une action mal remplie coupe le plan à cet endroit."""
+    plan = []
+    for item in (answer.get("plan") or [])[:MAX_PLAN]:
+        action = _action(item) if isinstance(item, dict) else None
+        if action is None:
+            break
+        plan.append(action)
+    if not plan:
+        return None
+    decision = {"plan": plan, "reasoning": answer.get("reasoning", "")}
+    for field in ("goal", "note_add", "note_remove"):
+        if answer.get(field) is not None:
+            decision[field] = answer[field]
     return decision
 
 
-def _action(answer):
-    action = answer.get("action")
-    point = answer.get("point_2d")
-    steps = answer.get("steps")
+def _action(item):
+    action = item.get("action")
+    point = item.get("point_2d")
+    steps = item.get("steps")
     if action == "move" and isinstance(steps, list) and steps:
-        return {"action": "move", "steps": steps, "reasoning": answer.get("reasoning", "")}
+        return {"action": "move", "steps": steps}
     has_point = isinstance(point, list) and len(point) == 2
-    reasoning = answer.get("reasoning", "")
     if action == "click" and has_point:
-        return {"point_2d": point, "label": answer.get("label") or "", "reasoning": reasoning}
+        return {"point_2d": point, "label": item.get("label") or ""}
     if action == "examine" and has_point:
-        return {"action": "examine", "point_2d": point, "reasoning": reasoning}
-    if action == "key" and answer.get("key") in KEYS:
-        return {"key": answer["key"], "reasoning": reasoning}
+        return {"action": "examine", "point_2d": point}
+    if action == "key" and item.get("key") in KEYS:
+        return {"key": item["key"]}
     if action in ("attack", "loot", "wait", "rest", "resume", "map"):
-        return {"action": action, "reasoning": reasoning}
+        return {"action": action}
     return None
 
 

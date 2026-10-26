@@ -16,10 +16,13 @@ Format d'une décision (celui de l'étape 11) :
     {"action": "examine", "point_2d": [x, y]}       examiner une case
     {"action": "resume"} / {"action": "wait"} / {"action": "rest"}
     {"action": "map"}                               carte de l'étage (vue dézoomée, overview.py)
-avec un champ "reasoning" facultatif.
+    {"plan": [décision, décision, ...]}             plusieurs actions jouées dans l'ordre (au plus MAX_PLAN) ;
+                                                    le plan s'arrête dès que la situation change
+avec des champs "reasoning", "goal", "note_add", "note_remove" facultatifs.
 
-Exemples (sans API) :
+Exemples (sans API ; « ; » sépare les tours, « + » les actions d'un même plan) :
     python harness.py --brain scripted --script "right; left; examine 537 500; wait"
+    python harness.py --brain scripted --script "move right right + wait + move left left"
     python harness.py --brain manual
 """
 
@@ -32,6 +35,7 @@ from collections import deque
 from datetime import datetime
 
 from actions import Actions
+from brain import MAX_PLAN
 from budget import spent
 from capture import LOGS_DIR, GameWindow, changed_fraction, resize
 from detectors import changes, new_messages, read_screen, window_rect
@@ -102,12 +106,45 @@ def describe_reasons(mode, state, previous, last_action, screen_changed=True):
     return reasons or ["next turn"]
 
 
+CHATTY_ACTIONS = {"attack", "wait", "loot"}  # leurs messages blancs (« You hit the rat ») sont attendus
+
+
+def plan_interrupted(action, start, before, after):
+    """Pourquoi arrêter un plan après `action` : ce qui a changé et que le plan ne pouvait pas prévoir
+    (`start` : état au début du plan ; `before`, `after` : avant et après l'action). Liste vide : on continue."""
+    why = []
+    if after["dead"]:
+        why.append("you died")
+    if before["window_open"] != after["window_open"]:
+        why.append("a window opened" if after["window_open"] else "the window closed")
+    fighting = action.get("action") in ("attack", "wait")
+    if before["hp_ratio"] - after["hp_ratio"] >= 0.01 and (
+            not fighting or after["hp_ratio"] <= DANGER_HP or start["hp_ratio"] - after["hp_ratio"] >= DANGER_DROP):
+        why.append(f"HP {before['hp_ratio']:.0%} -> {after['hp_ratio']:.0%}")
+    if bool(before["attack_button"]) != bool(after["attack_button"]):
+        why.append("attack button " + ("appeared: an enemy is next to you" if after["attack_button"] else
+                                       "disappeared: no enemy next to you any more"))
+    if after["pickup_button"] and not before["pickup_button"]:
+        why.append("pickup button appeared: an item is under you")
+    if before["enemies_visible"] != after["enemies_visible"]:
+        why.append("enemy in view" if after["enemies_visible"] else "no enemy in view any more")
+    added = new_messages([m["text"] for m in before["messages"]], [m["text"] for m in after["messages"]])
+    lines = after["messages"][len(after["messages"]) - len(added):] if added else []
+    if action.get("action") in CHATTY_ACTIONS:
+        lines = [line for line in lines if line["color"] != "white"]
+    if lines:
+        why.append("new log messages: " + " | ".join(line["text"] for line in lines))
+    return why
+
+
 # --------------------------------------------------------------------------- #
 # Cerveaux de test (sans API)
 # --------------------------------------------------------------------------- #
 
 def parse_command(text):
-    """« right », « click 520 480 », « examine 537 500 », « attack »... -> décision."""
+    """« right », « click 520 480 », « examine 537 500 », « attack »... -> décision ; « a + b » -> plan."""
+    if "+" in text:
+        return {"plan": [parse_command(part) for part in text.split("+") if part.strip()]}
     words = shlex.split(text)
     if not words:
         return {"action": "wait"}
@@ -189,6 +226,7 @@ class Harness:
         self.feedback = None  # action refusée par le harness : expliquée au modèle au tour suivant
         self.map_view = None  # carte affichée (vue dézoomée) : {"picture", "box", "scale"}
         self.walked = 0       # pas réellement faits par le dernier « move »
+        self.walk_complete = True  # le dernier « move » a-t-il fait tous ses pas ?
 
     def wait_uncovered(self):
         """Met le jeu devant ; si une autre fenêtre le couvre (alerte Windows...), attend qu'elle parte."""
@@ -211,9 +249,9 @@ class Harness:
             self.recent.clear()
             print("   Bloqué : déplacements sans effet, on prévient le modèle.")
             return (f"STUCK: your last {moves} moves did nothing. You can only walk to floor tiles you can see:"
-                    " black areas are unexplored and cannot be clicked, walls cannot be walked on. Click a lit"
-                    " floor tile, an open door or the far end of a visible corridor, or go back through the door"
-                    " you came in and explore another part of the floor.")
+                    " black areas are unexplored, walls cannot be walked on. Move toward a lit floor tile, an open"
+                    " door or the far end of a visible corridor (or click one on the map), or go back through the"
+                    " door you came in and explore another part of the floor.")
         if not last_action or last_action.get("action") in NOT_STUCK_ACTIONS:
             self.recent.clear()
             return None
@@ -339,30 +377,80 @@ class Harness:
                     self.log_turn(turn, mode, reasons, state, None, call, screenshot)
                     print("Le cerveau s'arrête.")
                     return "stopped"
-            refused = self.refuse(decision, state)
-            print(f"   -> {decision}" + (f" : refusée ({refused})" if refused else ""))
+            plan, dropped = self.plan_of(decision)
+            print(f"   -> {decision}")
             self.memory.apply(decision)  # avant le log : le carnet du tour inclut la note qui vient d'être écrite
             self.log_turn(turn, mode, reasons, state, decision, call, screenshot)
             if decision.get("reasoning"):
                 with (self.run_dir / "reasoning.txt").open("a", encoding="utf-8") as notes:
                     notes.write(f"{turn}\t{mode}\t{decision['reasoning']}\n")
             self.memory.record_action(turn, mode, decision)
-            if refused:
-                self.feedback = refused  # pas jouée : expliqué au modèle au tour suivant
-            elif self.map_view and "point_2d" in decision:
-                # Point sur la carte -> point sur l'écran dézoomé : on agit avant de rezoomer
-                view = self.map_view
-                point = map_to_screen(decision["point_2d"], view["box"], view["scale"], view["picture"].size)
-                self.execute(dict(decision, point_2d=point))
-                self.close_map()
-            else:
-                self.close_map()
-                self.execute(decision)
-            last_action = decision
+            last_action = self.play(plan, dropped)
             previous, previous_image = state, image
             image, state = self.look()
         print(f"Limite de {self.max_turns} tours atteinte.")
         return "max_turns"
+
+    def plan_of(self, decision):
+        """Les actions à jouer : celles du plan (au plus MAX_PLAN) ou la décision seule. click, examine et map
+        se jouent seuls (le modèle doit voir leur résultat avant la suite), comme toute action sur la carte.
+        Renvoie (actions, explication pour le modèle si une partie du plan est écartée)."""
+        actions = (decision.get("plan") or [decision])[:MAX_PLAN]
+        for index, action in enumerate(actions):
+            if "point_2d" in action or action.get("action") == "map" or self.map_view:
+                keep = max(index, 1)
+                if keep < len(actions):
+                    return actions[:keep], (f"only the first {keep} action(s) of your plan were played: click,"
+                                            " examine and map must come alone (you need to see their result"
+                                            " first), and on the map only one action is played.")
+                break
+        return actions, None
+
+    def play(self, actions, dropped=None):
+        """Joue les actions d'un plan dans l'ordre. S'arrête à une action refusée, à un « move » qui n'a pas fait
+        tous ses pas, ou dès que la situation change (plan_interrupted) : la suite du plan ne vaut plus.
+        Le compte rendu va au modèle au tour suivant. Renvoie la dernière action jouée (pour STUCK)."""
+        report = [dropped] if dropped else []
+        played = None
+        start = before = self.state
+        for index, action in enumerate(actions):
+            refused = self.refuse(action, before)
+            if refused:
+                print(f"   action {index + 1}/{len(actions)} refusée : {refused}")
+                report.append(refused)  # pas jouée : expliqué au modèle au tour suivant
+                break
+            if len(actions) > 1:
+                print(f"   action {index + 1}/{len(actions)} : {describe_action(action)}")
+            self.walk_complete = True
+            if self.map_view and "point_2d" in action:
+                # Point sur la carte -> point sur l'écran dézoomé : on agit avant de rezoomer
+                view = self.map_view
+                point = map_to_screen(action["point_2d"], view["box"], view["scale"], view["picture"].size)
+                self.execute(dict(action, point_2d=point))
+                self.close_map()
+            else:
+                self.close_map()
+                self.execute(action)
+            played = action
+            if self.feedback:
+                report.append(self.feedback)
+                self.feedback = None
+            if index + 1 == len(actions):
+                if len(actions) > 1:
+                    report.append(f"plan: all {len(actions)} actions done.")
+                break
+            if not self.walk_complete:
+                report.append(f"plan stopped after {index + 1} of {len(actions)} actions: the move did not finish.")
+                break
+            _, after = self.look()
+            why = plan_interrupted(action, start, before, after)
+            if why:
+                print("   plan interrompu : " + " ; ".join(why))
+                report.append(f"plan stopped after {index + 1} of {len(actions)} actions because: " + "; ".join(why))
+                break
+            before = after
+        self.feedback = " ".join(report) or None
+        return played or actions[0]
 
     def open_map(self):
         """Dézoome la vue du jeu au maximum et prépare la carte de la partie explorée de l'étage."""
@@ -395,8 +483,8 @@ class Harness:
     def refuse(decision, state):
         """Raison de ne pas jouer une décision qui ne peut rien faire, ou None."""
         if decision.get("action") == "attack" and not state["attack_button"]:
-            return ("attack did nothing: no enemy is next to the hero (there is no red attack button). Click the"
-                    " enemy to walk to it, or wait for it to come to you.")
+            return ("attack did nothing: no enemy is next to the hero (there is no red attack button). Move next"
+                    " to the enemy first, or wait for it to come to you.")
         return None
 
     def execute(self, decision):
@@ -425,6 +513,7 @@ class Harness:
         quelque chose change (ennemi, objet, vie, fenêtre, message). Renvoie le compte rendu pour le modèle."""
         steps = [step for step in steps if step in MOVE_KEYS][:MAX_STEPS]
         self.walked = 0
+        self.walk_complete = False
         if not steps:
             return "move: no valid step given (use up, down, left, right, up_left, up_right, down_left, down_right)."
         before_image, before_state = self.window.grab(), self.state
@@ -440,6 +529,7 @@ class Harness:
             if happened and done + 1 < len(steps):
                 return f"move: stopped after {done + 1} of {len(steps)} steps because: " + "; ".join(happened)
             before_image, before_state = image, state
+        self.walk_complete = True
         return f"move: all {len(steps)} steps done."
 
     def examine(self, point_2d):

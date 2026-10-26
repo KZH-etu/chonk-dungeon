@@ -91,6 +91,8 @@ def describe(decision):
     """L'action du tour, en quelques mots pour le public."""
     if not decision:
         return "no action (the brain stopped)"
+    if "plan" in decision:
+        return "  →  ".join(describe(action) for action in decision["plan"])
     if "key" in decision:
         return "key: " + decision["key"].replace("_", " ")
     action = decision.get("action")
@@ -112,6 +114,8 @@ def marked_shot(path, decision):
     except OSError:
         return None
     shot = image.resize((SHOT_WIDTH, round(image.height * SHOT_WIDTH / image.width)), Image.LANCZOS)
+    if decision and decision.get("plan"):
+        decision = decision["plan"][0]  # seule la 1re action d'un plan peut viser un point
     point = (decision or {}).get("point_2d")
     if point:
         x = point[0] / 1000 * (shot.width - 1)
@@ -241,7 +245,10 @@ class Viewer:
 
         decision = turn.get("decision")
         self.action.config(text="▶ " + describe(decision))
-        self.reasoning.config(text=f"“{decision['reasoning']}”" if decision and decision.get("reasoning") else "")
+        text = f"“{decision['reasoning']}”" if decision and decision.get("reasoning") else ""
+        if decision and decision.get("goal"):
+            text += f"\nGoal: {decision['goal']}"
+        self.reasoning.config(text=text)
         self.reasons.config(text="Called because: " + "; ".join(turn.get("reasons", [])))
 
         notes = turn.get("notes")

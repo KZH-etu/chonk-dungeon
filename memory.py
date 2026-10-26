@@ -31,7 +31,9 @@ def similarity(a, b):
 
 
 def describe_action(decision):
-    """Une action en quelques mots, pour l'historique."""
+    """Une action (ou un plan d'actions) en quelques mots, pour l'historique."""
+    if "plan" in decision:
+        return "; ".join(describe_action(action) for action in decision["plan"])
     if "key" in decision:
         return f"key {decision['key']}"
     action = decision.get("action")
@@ -52,6 +54,7 @@ class Memory:
         self.notes = []
         self.floor = 1
         self.deepest = 1
+        self.goal = None  # objectif du moment, donné par le modèle et rappelé à l'appel suivant
 
     # --- historique ----------------------------------------------------------
 
@@ -85,6 +88,8 @@ class Memory:
 
     def apply(self, decision):
         """Applique les changements de carnet demandés par le modèle."""
+        if decision.get("goal"):
+            self.goal = " ".join(str(decision["goal"]).split())[:NOTE_MAX_CHARS]
         self.remove_note(decision.get("note_remove"))
         if decision.get("note_add"):
             # L'étage où la note est écrite : une note de l'étage 1 ne vaut plus à l'étage 2
@@ -110,6 +115,7 @@ class Memory:
             if match and int(match.group(2)) != self.floor:
                 self.floor = int(match.group(2))
                 self.deepest = max(self.deepest, self.floor)
+                self.goal = None  # le but de l'étage précédent ne vaut plus
                 changed = True
         return changed
 
@@ -117,6 +123,8 @@ class Memory:
 
     def to_text(self):
         lines = [f"Current floor: {self.floor} (deepest reached: {self.deepest})."]
+        if self.goal:
+            lines.append(f"Your current goal (from your last answer): {self.goal}")
         if self.history:
             lines.append("Your recent actions (oldest first) and what followed:")
             for item in self.history:
@@ -130,6 +138,6 @@ class Memory:
         return "\n".join(lines)
 
     def save(self, path):
-        path.write_text(json.dumps({"floor": self.floor, "deepest": self.deepest, "notes": self.notes,
+        path.write_text(json.dumps({"floor": self.floor, "deepest": self.deepest, "goal": self.goal, "notes": self.notes,
                                     "history": list(self.history)}, indent=2, ensure_ascii=False),
                         encoding="utf-8")

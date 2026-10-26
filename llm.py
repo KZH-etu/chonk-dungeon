@@ -61,27 +61,51 @@ def make_client():
     return Mistral(api_key=load_api_key())
 
 
+SERVER_ERRORS = {500, 502, 503, 504}  # erreurs passagères du serveur : on réessaie, comme pour la coupure réseau
+SERVER_RETRIES = 3
+
+
+def network_error(error):
+    """Coupure réseau ou délai dépassé (httpx2 est la bibliothèque HTTP du SDK mistralai)."""
+    try:
+        import httpx2
+    except ImportError:
+        return False
+    return isinstance(error, httpx2.TransportError)
+
+
 def complete(client, model, messages, max_tokens, response_format=None, reasoning=None, temperature=0.1):
-    """Appel avec attente et nouvel essai en cas de 429 (limite de tokens/min). Renvoie (réponse, secondes)."""
+    """Appel avec attente et nouvel essai en cas de 429 (limite de tokens/min), d'erreur 5xx ou de coupure
+    réseau. Renvoie (réponse, secondes)."""
     extra = {"reasoning_effort": reasoning} if reasoning else {}
     if response_format:
         extra["response_format"] = response_format
-    for attempt in range(5):
+    server_failures = rate_limited = 0
+    while True:
         try:
             start = time.perf_counter()
             response = client.chat.complete(model=model, messages=messages, temperature=temperature,
                                             max_tokens=max_tokens, **extra)
             return response, time.perf_counter() - start
         except Exception as error:  # le SDK lève une erreur générique avec le code HTTP
-            if getattr(error, "status_code", None) != 429:
+            status = getattr(error, "status_code", None)
+            if status in SERVER_ERRORS or network_error(error):
+                server_failures += 1
+                if server_failures > SERVER_RETRIES:
+                    raise RuntimeError(f"Erreur du serveur ou du réseau après {SERVER_RETRIES} essais : {error}")
+                print(f"   {status or type(error).__name__} : nouvel essai dans {2 * server_failures} s")
+                time.sleep(2 * server_failures)
+                continue
+            if status != 429:
                 raise
             print_rate_limits(error)
             headers = getattr(error, "headers", None) or {}
             if any(k.lower().startswith("x-ratelimit-limit") and v.strip() == "0" for k, v in headers.items()):
                 raise SystemExit("Limite à 0 : la clé n'a droit à aucun appel. Activer une offre API dans la console Mistral.")
-            if attempt == 4:
+            rate_limited += 1
+            if rate_limited == 5:
                 raise RuntimeError("Toujours 429 après 5 essais : voir les en-têtes de limite ci-dessus.")
-            wait = 15 * (attempt + 1)
+            wait = 15 * rate_limited
             print(f"   429 (limite de débit) : attente {wait} s")
             time.sleep(wait)
 

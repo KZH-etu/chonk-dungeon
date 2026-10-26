@@ -261,6 +261,16 @@ Un dossier par partie dans `logs/runs/<date-heure>/` :
 - [x] Testé sans API : les 4 directions droites et les 4 diagonales marchent ; « right » ×10 s'arrête au 3e pas sur un tonneau, « down_left » ×4 au 2e pas sur le mur
 - [ ] Reconnaître les cases (sol, mur, porte, gouffre…) pour dire au modèle les directions libres et repérer les cibles : étiquetage automatique avec la loupe du jeu, puis classifieur Python (sans coût API)
 
+**Plans d'actions (26/10)**, idées reprises de [heroes-3-mcp](https://github.com/andreinwald/heroes-3-mcp) (autre participant : Heroes 3 via un serveur MCP dans le moteur VCMI, agent Mistral en TypeScript). Lui lit l'état du jeu dans le moteur (cases accessibles, coups légaux) ; nous, seulement l'écran. Ce qui se transpose :
+- [x] **Le modèle répond par un plan de 1 à 5 actions** (chez lui, plusieurs appels d'outils par réponse). Le harness les joue dans l'ordre et **arrête le plan dès que la situation change** (`plan_interrupted`) : fenêtre, mort, vie perdue (en combat : seulement sous 35 % ou 30 % perdus depuis le début du plan), bouton d'attaque apparu ou disparu, objet sous le héros, ennemi en vue ou plus en vue, nouveau message (en combat, `wait` et `loot` : seulement les messages colorés). Puis il dit au modèle ce qui a été joué et pourquoi le plan s'est arrêté. Exemples : `attack` ×3 contre un rat, `wait` ×3 près d'une porte en attendant un serpent, `loot` puis `move`
+  - `click`, `examine` et `map` se jouent **seuls** : le modèle doit voir leur résultat avant la suite (le reste du plan est écarté, et on le lui dit)
+  - Gain attendu : moins d'appels en combat (7 appels pour un serpent dans la partie 1) et pour les petites suites évidentes
+- [x] **But courant** (champ `goal`) : l'objectif du moment, rappelé au modèle à l'appel suivant, effacé au changement d'étage. Chez lui, c'est l'historique de conversation (100 messages) qui garde l'intention ; trop cher pour nous avec les images, ce champ en garde l'essentiel pour quelques tokens
+- [x] **Actions utilisables maintenant** dans chaque message (« Usable now: ... attack (red button shown) »), comme ses lignes `attack=ids|none wait=yes` : le modèle sait d'avance ce qui sera refusé
+- [x] **Nouvel essai sur les erreurs 5xx et les coupures réseau** (pas seulement 429) : avant, une erreur 503 arrêtait la partie
+- Testé sans jeu ni API (décodage du plan, interruptions, découpage, refus, carnet, viewer). **Reste à tester dans le jeu** : `python harness.py --brain scripted --script "move right right + wait + move left left"`
+- Pas repris : ses outils d'observation séparés (`get_map`, `get_battle`...), inutiles quand chaque appel reçoit déjà la capture ; son historique de conversation complet (trop de tokens avec des images)
+
 ---
 
 ## Phase 4 : livraison (27-28 oct.)
