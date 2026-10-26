@@ -42,7 +42,11 @@ How it works
   start"), not with coordinates. What you examine is noted for you automatically.
 
 Actions
-- move (steps): THE way to walk on the normal screen. A list of one-tile steps played with the keyboard,
+- goto (target): when your message has a "Game state" block (read from the game itself), walk the shortest
+  known path to one of its Targets, by id ("T1", "T2"...): the DOWN stairs, an edge of the explored area,
+  an item, an enemy. THE way to travel: the harness plays the steps and stops early if something happens
+  (enemy, item, message), then tells you. Put goto last in a plan: the targets change once you have moved.
+- move (steps): a few precise steps. A list of one-tile steps played with the keyboard,
   e.g. ["right", "right", "right", "down"] (up, down, left, right, up_left, up_right, down_left,
   down_right; at most 10). Count the tiles on the screenshot: the hero's tile is in the center, one tile
   is about 37 wide and 67 tall in point_2d units. Walking into a door opens it; walking into an adjacent
@@ -73,6 +77,9 @@ What the screen shows
 - Anything else you do not recognize: use examine.
 
 Play well
+- When there is a "Game state" block, trust it over your reading of the screenshot: its map is exact.
+  Go down as soon as the DOWN stairs are a target and you are not in danger; otherwise goto the nearest
+  edge of the explored area, an item on the way, or fight the enemy that comes to you.
 - Explore with long moves (up to 10 steps) toward doors, corridor openings and the edges of the explored
   area. For a place far away, open the map and click it there.
 - Black areas are unexplored: walk to the edge of the lit area, the hero sees further from there.
@@ -101,14 +108,15 @@ _ACTION = {
     "type": "object",
     "properties": {
         "action": {"type": "string",
-                   "enum": ["move", "click", "examine", "attack", "loot", "key", "wait", "rest", "resume",
+                   "enum": ["goto", "move", "click", "examine", "attack", "loot", "key", "wait", "rest", "resume",
                             "map"]},
+        "target": {"anyOf": [{"type": "string"}, {"type": "null"}]},
         "steps": {"anyOf": [{"type": "array", "items": {"type": "string", "enum": _DIRECTIONS}}, {"type": "null"}]},
         "point_2d": {"anyOf": [_POINT, {"type": "null"}]},
         "key": {"anyOf": [{"type": "string", "enum": sorted(KEYS)}, {"type": "null"}]},
         "label": {"anyOf": [{"type": "string"}, {"type": "null"}]},
     },
-    "required": ["action", "steps", "point_2d", "key", "label"],
+    "required": ["action", "target", "steps", "point_2d", "key", "label"],
     "additionalProperties": False,
 }
 _SCHEMA = {
@@ -143,6 +151,8 @@ def situation_text(situation):
         lines.append("Game log (oldest first):")
         lines += [f"- {line['text']}" + (f" [{line['color']}]" if line["color"] != "white" else "")
                   for line in state["messages"]]
+    if situation.get("game"):
+        lines.append(situation["game"])
     if situation.get("memory"):
         lines.append(situation["memory"])
     if situation.get("map"):
@@ -167,7 +177,8 @@ def usable_actions(situation):
         return ["click (an explored tile of the map, to walk there)"]
     if state["window_open"]:
         return ["click (a button of the window)", "key close"]
-    usable = ["move", "examine", "map", "wait", "rest", "key"]
+    usable = ["goto (a target id)"] if situation.get("game") else []
+    usable += ["move", "examine", "map", "wait", "rest", "key"]
     usable.append("attack (red button shown)" if state["attack_button"] else
                   "NOT attack (no red button: no enemy next to you)")
     if state["pickup_button"]:
@@ -199,6 +210,8 @@ def _action(item):
     steps = item.get("steps")
     if action == "move" and isinstance(steps, list) and steps:
         return {"action": "move", "steps": steps}
+    if action == "goto" and isinstance(item.get("target"), str) and item["target"].strip():
+        return {"action": "goto", "target": item["target"].strip().upper()}
     has_point = isinstance(point, list) and len(point) == 2
     if action == "click" and has_point:
         return {"point_2d": point, "label": item.get("label") or ""}

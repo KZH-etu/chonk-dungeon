@@ -16,6 +16,7 @@ Format d'une décision (celui de l'étape 11) :
     {"action": "examine", "point_2d": [x, y]}       examiner une case
     {"action": "resume"} / {"action": "wait"} / {"action": "rest"}
     {"action": "map"}                               carte de l'étage (vue dézoomée, overview.py)
+    {"action": "goto", "target": "T1"}              suivre le chemin vers une cible (Chonk build, game_state.py)
     {"plan": [décision, décision, ...]}             plusieurs actions jouées dans l'ordre (au plus MAX_PLAN) ;
                                                     le plan s'arrête dès que la situation change
 avec des champs "reasoning", "goal", "note_add", "note_remove" facultatifs.
@@ -39,6 +40,7 @@ from brain import MAX_PLAN
 from budget import spent
 from capture import LOGS_DIR, GameWindow, changed_fraction, resize
 from detectors import changes, new_messages, read_screen, window_rect
+import game_state
 from llm import BUDGET_USD
 from memory import Memory, describe_action
 from ocr import Reader
@@ -78,6 +80,8 @@ MOVED = 0.01  # au-delà de 1 % de pixels changés, l'écran a bougé (la camér
 STUCK_REPEATS = 3
 NO_MOVE_LIMIT = 3  # déplacements sans effet de suite (même si les cibles diffèrent) -> message STUCK
 MAX_STEPS = 10     # pas au plus par action « move »
+MAX_GOTO = 40      # pas au plus par action « goto » (le chemin est calculé, pas compté par le modèle)
+WALK_ACTIONS = {"move", "goto"}
 NOT_STUCK_ACTIONS = {"wait", "rest", "examine", "map", "attack"}  # « attack » : en combat l'écran bouge à peine  # ne changent pas l'écran, et c'est voulu
 NEW_GAME_BUTTON = [500, 532]  # bouton « New Game » de l'écran de mort (640, 383 sur 1280x720)
 COVERED_CHECKS, COVERED_PAUSE = 20, 3.0  # jeu couvert par une autre fenêtre : on attend jusqu'à 1 min
@@ -90,7 +94,7 @@ class WindowCovered(RuntimeError):
 def is_move(action):
     """Clic de déplacement, pas d'une case ou suite de pas."""
     return bool(action) and (("point_2d" in action and "action" not in action) or action.get("key") in MOVE_KEYS
-                             or action.get("action") == "move")
+                             or action.get("action") in WALK_ACTIONS)
 
 
 def describe_reasons(mode, state, previous, last_action, screen_changed=True):
@@ -153,6 +157,8 @@ def parse_command(text):
         return {"point_2d": numbers, "label": " ".join(words[3:]) or "clic"}
     if verb == "examine" and len(numbers) == 2:
         return {"action": "examine", "point_2d": numbers}
+    if verb == "goto" and len(words) > 1:
+        return {"action": "goto", "target": words[1].upper()}
     if verb == "move":
         return {"action": "move", "steps": words[1:]}
     if verb in ("attack", "loot", "resume", "wait", "rest", "map"):
@@ -227,6 +233,7 @@ class Harness:
         self.map_view = None  # carte affichée (vue dézoomée) : {"picture", "box", "scale"}
         self.walked = 0       # pas réellement faits par le dernier « move »
         self.walk_complete = True  # le dernier « move » a-t-il fait tous ses pas ?
+        self.targets = {}     # cibles proposées au modèle ce tour (Chonk build) : {"T1": {"cell", "label", "steps"}}
 
     def wait_uncovered(self):
         """Met le jeu devant ; si une autre fenêtre le couvre (alerte Windows...), attend qu'elle parte."""
@@ -310,7 +317,7 @@ class Harness:
         for turn in range(1, self.max_turns + 1):
             self.turns = turn
             screen_changed = previous_image is None or changed_fraction(previous_image, image) > MOVED
-            if last_action and last_action.get("action") == "move":
+            if last_action and last_action.get("action") in WALK_ACTIONS:
                 screen_changed = self.walked > 0  # un aller-retour ramène le même écran, mais le héros a bougé
             stuck = self.check_stuck(last_action, screen_changed)
             if stuck and state["window_open"]:
@@ -329,7 +336,11 @@ class Harness:
                 self.feedback = None
             added = new_messages([m["text"] for m in previous["messages"]],
                                  [m["text"] for m in state["messages"]]) if previous else []
-            if self.memory.observe_messages(added):
+            game = game_state.load()  # état exact exporté par le Chonk build (None avec le jeu officiel)
+            floor_changed = self.memory.observe_messages(added)
+            if game and self.memory.observe_depth(game.get("depth")):
+                floor_changed = True
+            if floor_changed:
                 reasons.insert(0, f"you are now on floor {self.memory.floor}")
             self.kills += sum(1 for text in added if text.startswith("You defeated"))
             self.items += sum(1 for text in added if text.startswith("You picked up"))
@@ -360,6 +371,7 @@ class Harness:
                                  " Jumping never counts for the goal. Chasm tiles cannot be crossed: walk around"
                                  " them or explore another part of the floor.")
             else:
+                self.targets = game_state.targets(game_state.Floor(game)) if game else {}
                 situation = {
                     "turn": turn, "mode": mode, "reasons": reasons, "state": state,
                     # Image seulement si l'écran n'est pas que du texte déjà lu ; la carte à la place de la capture
@@ -368,6 +380,7 @@ class Harness:
                     "map": self.map_view is not None,
                     "examined": self.examined,
                     "memory": self.memory.to_text(),
+                    "game": game_state.describe(game, self.targets) if game else None,
                 }
                 self.examined = None
                 self.brain.last_call = None
@@ -377,6 +390,9 @@ class Harness:
                     self.log_turn(turn, mode, reasons, state, None, call, screenshot)
                     print("Le cerveau s'arrête.")
                     return "stopped"
+            for action in decision.get("plan") or [decision]:
+                if action.get("action") == "goto" and action.get("target") in self.targets:
+                    action["label"] = self.targets[action["target"]]["label"]  # pour l'historique et le viewer
             plan, dropped = self.plan_of(decision)
             print(f"   -> {decision}")
             self.memory.apply(decision)  # avant le log : le carnet du tour inclut la note qui vient d'être écrite
@@ -397,6 +413,9 @@ class Harness:
         Renvoie (actions, explication pour le modèle si une partie du plan est écartée)."""
         actions = (decision.get("plan") or [decision])[:MAX_PLAN]
         for index, action in enumerate(actions):
+            if action.get("action") == "goto" and index + 1 < len(actions):
+                return actions[:index + 1], ("the actions after goto were not played: once you have moved, the"
+                                             " targets change. Put goto last in a plan.")
             if "point_2d" in action or action.get("action") == "map" or self.map_view:
                 keep = max(index, 1)
                 if keep < len(actions):
@@ -495,6 +514,8 @@ class Harness:
             self.open_map()
         elif action == "move":
             self.feedback = self.walk(decision.get("steps") or [])
+        elif action == "goto":
+            self.feedback = self.goto(decision.get("target"))
         elif action in ("attack", "loot", "resume", "wait", "rest"):
             names = {"loot": "pickup"}
             self.actions.press(names.get(action, action), wait=False)
@@ -508,10 +529,26 @@ class Harness:
             print(f"   décision inconnue, on attend : {decision}")
             self.actions.press("wait")
 
-    def walk(self, steps):
+    def goto(self, target):
+        """Suit le plus court chemin connu vers une cible du tour (recalculé sur l'état du moment : une
+        action plus tôt dans le plan a pu déplacer le héros). Renvoie le compte rendu pour le modèle."""
+        self.walked = 0
+        self.walk_complete = False
+        chosen = self.targets.get(target)
+        if not chosen:
+            names = ", ".join(self.targets) or "none (no Game state this turn)"
+            return f"goto: unknown target '{target}'. Targets this turn: {names}."
+        game = game_state.load()
+        steps = game_state.Floor(game).path(chosen["cell"]) if game else chosen["steps"]
+        if not steps:
+            return f"goto {target}: no known path to {chosen['label']} from here."
+        report = self.walk(steps, limit=MAX_GOTO)
+        return f"goto {target} ({chosen['label']}): " + report
+
+    def walk(self, steps, limit=MAX_STEPS):
         """Joue les pas un par un. S'arrête si un pas ne fait pas bouger le héros (mur, obstacle) ou si
         quelque chose change (ennemi, objet, vie, fenêtre, message). Renvoie le compte rendu pour le modèle."""
-        steps = [step for step in steps if step in MOVE_KEYS][:MAX_STEPS]
+        steps = [step for step in steps if step in MOVE_KEYS][:limit]
         self.walked = 0
         self.walk_complete = False
         if not steps:

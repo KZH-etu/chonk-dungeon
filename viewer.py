@@ -100,6 +100,9 @@ def describe(decision):
         return "examine the marked tile"
     if action == "move":
         return "move: " + ", ".join(step.replace("_", "-") for step in decision.get("steps") or [])
+    if action == "goto":
+        label = decision.get("label") or decision.get("target")
+        return f"go to: {label.split(' (')[0]}" if label else "go to a target"
     if action:
         return {"loot": "pick up the item", "attack": "attack the nearest enemy", "map": "look at the floor map",
                 "rest": "rest", "wait": "wait one turn", "resume": "resume the walk"}.get(action, action)

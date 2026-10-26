@@ -271,6 +271,17 @@ Un dossier par partie dans `logs/runs/<date-heure>/` :
 - Testé sans jeu ni API (décodage du plan, interruptions, découpage, refus, carnet, viewer). **Reste à tester dans le jeu** : `python harness.py --brain scripted --script "move right right + wait + move left left"`
 - Pas repris : ses outils d'observation séparés (`get_map`, `get_battle`...), inutiles quand chaque appel reçoit déjà la capture ; son historique de conversation complet (trop de tokens avec des images)
 
+**État exact du jeu : version hybride (26/10).** Le règlement n'impose pas la vision (« an original, functional, and interesting harness ») ; seul risque, le « third-party copyrighted content » : le jeu reste **hors de ce dépôt**, dans un fork séparé (GPL-3.0). README de SPD lu : le code est publié pour être réutilisé, mais pas de pull request ; les changements de `docs/recommended-changes.md` sont faits (nom « Shattered Pixel Dungeon (Chonk build) », identifiant propre, notification de mise à jour coupée), crédits intacts.
+- [x] JDK 21 portable (`C:\Users\famil\tools\`, hors PATH), sources SPD 4.0.2 dans `C:\Users\famil\Documents\spd-chonk` (branche `chonk`). Build : `gradlew desktop:release` → `desktop/build/libs/desktop-4.0.2.jar`. Place : ~1,3 Go
+- [x] Le build s'affiche comme le jeu officiel : détecteurs et OCR inchangés (vie, journal, inventaire). Sauvegardes séparées (`%APPDATA%\.chonkdungeon\`), réglages recopiés
+- [x] `ChonkState.java` : à chaque fois que le héros attend un ordre, écrit `chonk_state.json` avec **seulement ce que le joueur sait** : cases vues ou cartographiées, monstres en vue, objets et pièges déjà vus, vie, faim
+- [x] `game_state.py` : extrait de carte en texte autour du héros, directions libres, et **cibles** T1, T2... (escalier qui descend, portes et bords inexplorés, objets, ennemis) avec le plus court chemin connu (évite l'escalier qui monte, les pièges, le gouffre)
+- [x] Action **`goto`** (cible) : le harness suit le chemin (40 pas au plus) et s'arrête si quelque chose change. Toujours en dernier dans un plan. L'étage est lu dans le jeu
+- [x] Testé dans le jeu sans API : `goto` vers la porte puis vers un bord, le héros sort de la salle de départ ; `--dry-run` : bloc « Game state » ajouté au message (~150 à 300 tokens)
+- Avec le jeu officiel, le fichier n'existe pas : le harness marche comme avant (vision seule)
+- [ ] Publier le fork sur GitHub (GPL) et le lier dans le README
+- [ ] Une vraie partie avec Mistral Large 4 (avec accord)
+
 ---
 
 ## Phase 4 : livraison (27-28 oct.)

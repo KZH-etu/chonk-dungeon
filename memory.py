@@ -42,6 +42,8 @@ def describe_action(decision):
         return f"examine {point}"
     if action == "move":
         return "move " + ",".join(decision.get("steps") or [])
+    if action == "goto":
+        return f"goto {decision.get('target')}" + (f" ({decision['label']})" if decision.get("label") else "")
     if action:
         return action
     label = decision.get("label")
@@ -118,6 +120,15 @@ class Memory:
                 self.goal = None  # le but de l'étage précédent ne vaut plus
                 changed = True
         return changed
+
+    def observe_depth(self, depth):
+        """Étage lu directement dans le jeu (Chonk build). Renvoie True si l'étage a changé."""
+        if not isinstance(depth, int) or depth == self.floor:
+            return False
+        self.floor = depth
+        self.deepest = max(self.deepest, depth)
+        self.goal = None
+        return True
 
     # --- pour le prompt et les logs ----------------------------------------------
 
