@@ -96,6 +96,8 @@ def describe(decision):
     if "key" in decision:
         return "key: " + decision["key"].replace("_", " ")
     action = decision.get("action")
+    if action == "use":
+        return f"use: {str(decision.get('verb', '')).lower()} {decision.get('item', '')}"
     if action == "examine":
         return "examine the marked tile"
     if action == "move":
@@ -119,7 +121,7 @@ def marked_shot(path, decision):
     shot = image.resize((SHOT_WIDTH, round(image.height * SHOT_WIDTH / image.width)), Image.LANCZOS)
     if decision and decision.get("plan"):
         decision = decision["plan"][0]  # seule la 1re action d'un plan peut viser un point
-    point = (decision or {}).get("point_2d")
+    point = (decision or {}).get("point_2d") or (decision or {}).get("screen_2d")
     if point:
         x = point[0] / 1000 * (shot.width - 1)
         y = point[1] / 1000 * (shot.height - 1)

@@ -38,12 +38,16 @@ def describe_action(decision):
         return f"key {decision['key']}"
     action = decision.get("action")
     point = decision.get("point_2d")
-    if action == "examine":
+    if action == "examine" and not decision.get("target"):
         return f"examine {point}"
     if action == "move":
         return "move " + ",".join(decision.get("steps") or [])
     if action == "goto":
         return f"goto {decision.get('target')}" + (f" ({decision['label']})" if decision.get("label") else "")
+    if action == "use":
+        return f"use {decision.get('item')} {decision.get('verb')}" + (f" at {decision['target']}" if decision.get("target") else "")
+    if action == "examine" and decision.get("target"):
+        return f"examine {decision['target']}" + (f" ({decision['label']})" if decision.get("label") else "")
     if action:
         return action
     label = decision.get("label")
@@ -57,6 +61,7 @@ class Memory:
         self.floor = 1
         self.deepest = 1
         self.goal = None  # objectif du moment, donné par le modèle et rappelé à l'appel suivant
+        self.examined = set()  # noms (en minuscules) de ce qui a été examiné : monstres « NOT EXAMINED YET »
 
     # --- historique ----------------------------------------------------------
 
@@ -102,6 +107,7 @@ class Memory:
         lines = [line for line in text.splitlines() if line.strip()]
         if not lines:
             return
+        self.examined.add(lines[0].strip().lower())
         summary = lines[0] + (f": {lines[1]}" if len(lines) > 1 else "")
         first_sentence = summary.split(". ")[0].rstrip(".") + "."
         if not any(note.startswith(f"Examined {lines[0]}:") for note in self.notes):

@@ -16,7 +16,9 @@ Format d'une décision (celui de l'étape 11) :
     {"action": "examine", "point_2d": [x, y]}       examiner une case
     {"action": "resume"} / {"action": "wait"} / {"action": "rest"}
     {"action": "map"}                               carte de l'étage (vue dézoomée, overview.py)
-    {"action": "goto", "target": "T1"}              suivre le chemin vers une cible (Chonk build, game_state.py)
+    {"action": "goto", "target": "T1"}              clic sur une cible : le jeu fait marcher le héros (Chonk build)
+    {"action": "examine", "target": "T2"}           examiner une cible (Chonk build)
+    {"action": "use", "item": "...", "verb": "DRINK"}  utiliser un objet du sac (Chonk build)
     {"plan": [décision, décision, ...]}             plusieurs actions jouées dans l'ordre (au plus MAX_PLAN) ;
                                                     le plan s'arrête dès que la situation change
 avec des champs "reasoning", "goal", "note_add", "note_remove" facultatifs.
@@ -80,7 +82,8 @@ MOVED = 0.01  # au-delà de 1 % de pixels changés, l'écran a bougé (la camér
 STUCK_REPEATS = 3
 NO_MOVE_LIMIT = 3  # déplacements sans effet de suite (même si les cibles diffèrent) -> message STUCK
 MAX_STEPS = 10     # pas au plus par action « move »
-MAX_GOTO = 40      # pas au plus par action « goto » (le chemin est calculé, pas compté par le modèle)
+MAX_GOTO = 40      # pas au plus par action « goto » au clavier (si aucun point du chemin n'est cliquable)
+GOTO_CLICKS = 4    # clics au plus par « goto » (une cible hors de l'écran demande plusieurs clics)
 WALK_ACTIONS = {"move", "goto"}
 NOT_STUCK_ACTIONS = {"wait", "rest", "examine", "map", "attack"}  # « attack » : en combat l'écran bouge à peine  # ne changent pas l'écran, et c'est voulu
 NEW_GAME_BUTTON = [500, 532]  # bouton « New Game » de l'écran de mort (640, 383 sur 1280x720)
@@ -159,6 +162,10 @@ def parse_command(text):
         return {"action": "examine", "point_2d": numbers}
     if verb == "goto" and len(words) > 1:
         return {"action": "goto", "target": words[1].upper()}
+    if verb == "examine" and len(words) == 2:
+        return {"action": "examine", "target": words[1].upper()}
+    if verb == "use" and len(words) >= 3:  # use "turquoise potion" drink
+        return {"action": "use", "item": words[1], "verb": words[2].upper()}
     if verb == "move":
         return {"action": "move", "steps": words[1:]}
     if verb in ("attack", "loot", "resume", "wait", "rest", "map"):
@@ -371,7 +378,7 @@ class Harness:
                                  " Jumping never counts for the goal. Chasm tiles cannot be crossed: walk around"
                                  " them or explore another part of the floor.")
             else:
-                self.targets = game_state.targets(game_state.Floor(game)) if game else {}
+                self.targets = game_state.targets(game_state.Floor(game), self.memory.examined) if game else {}
                 situation = {
                     "turn": turn, "mode": mode, "reasons": reasons, "state": state,
                     # Image seulement si l'écran n'est pas que du texte déjà lu ; la carte à la place de la capture
@@ -391,8 +398,11 @@ class Harness:
                     print("Le cerveau s'arrête.")
                     return "stopped"
             for action in decision.get("plan") or [decision]:
-                if action.get("action") == "goto" and action.get("target") in self.targets:
-                    action["label"] = self.targets[action["target"]]["label"]  # pour l'historique et le viewer
+                if action.get("target") in self.targets:  # goto, examine : pour l'historique et le viewer
+                    action["label"] = self.targets[action["target"]]["label"]
+                    point = self.target_point(action["target"])
+                    if point:
+                        action["screen_2d"] = point  # où la cible est à l'écran (dessinée par le viewer)
             plan, dropped = self.plan_of(decision)
             print(f"   -> {decision}")
             self.memory.apply(decision)  # avant le log : le carnet du tour inclut la note qui vient d'être écrite
@@ -416,7 +426,7 @@ class Harness:
             if action.get("action") == "goto" and index + 1 < len(actions):
                 return actions[:index + 1], ("the actions after goto were not played: once you have moved, the"
                                              " targets change. Put goto last in a plan.")
-            if "point_2d" in action or action.get("action") == "map" or self.map_view:
+            if "point_2d" in action or action.get("action") in ("map", "examine") or self.map_view:
                 keep = max(index, 1)
                 if keep < len(actions):
                     return actions[:keep], (f"only the first {keep} action(s) of your plan were played: click,"
@@ -508,8 +518,27 @@ class Harness:
 
     def execute(self, decision):
         action = decision.get("action")
-        if action == "examine":
+        if action == "examine" and decision.get("target"):
+            point = self.target_point(decision["target"])
+            if point is None:
+                self.examined = f"examine: unknown or off-screen target '{decision['target']}'"
+            else:
+                chosen = self.targets[decision["target"]]
+                if chosen["kind"] == "enemy":  # même si la fenêtre n'est pas lisible par l'OCR
+                    self.memory.examined.add(chosen["label"].split(": ", 1)[1].split(" (")[0].lower())
+                self.examine(point)
+                game = game_state.load()
+                mob = next((m for m in (game or {}).get("mobs", []) if (m["x"], m["y"]) == chosen["cell"]), None)
+                if mob and mob.get("info"):
+                    # Le texte exact de la fenêtre qui vient de s'ouvrir, exporté par le jeu (l'OCR ne lit pas
+                    # la mise en page des fenêtres de monstres)
+                    self.examined = f"{mob['name'].capitalize()}\n{mob['info']}"
+                    self.memory.note_examined(self.examined)
+        elif action == "examine":
             self.examine(decision["point_2d"])
+        elif action == "use":
+            self.feedback = self.use(decision.get("item") or "", decision.get("verb") or "",
+                                     decision.get("target"))
         elif action == "map":
             self.open_map()
         elif action == "move":
@@ -529,21 +558,111 @@ class Harness:
             print(f"   décision inconnue, on attend : {decision}")
             self.actions.press("wait")
 
+    def to_2d(self, pixel):
+        """Pixels de la fenêtre du jeu -> point_2d (0-1000), le format des clics."""
+        _, _, width, height = self.window.client_rect()
+        return [round(pixel[0] / width * 1000), round(pixel[1] / height * 1000)]
+
+    def target_point(self, target):
+        """point_2d de la case d'une cible, si elle est à l'écran et cliquable (hors des boutons), sinon None."""
+        chosen = self.targets.get(target)
+        game, ui = game_state.load(), game_state.load_ui()
+        if not (chosen and game and ui):
+            return None
+        hero = (game["hero"]["x"], game["hero"]["y"])
+        pixel = game_state.screen_point(ui, hero, chosen["cell"])
+        return self.to_2d(pixel) if game_state.clickable(ui, pixel) else None
+
     def goto(self, target):
-        """Suit le plus court chemin connu vers une cible du tour (recalculé sur l'état du moment : une
-        action plus tôt dans le plan a pu déplacer le héros). Renvoie le compte rendu pour le modèle."""
+        """Clique sur la cible comme un joueur : le jeu trace le chemin et fait marcher le héros, et
+        s'arrête de lui-même si un ennemi apparaît. Cible hors de l'écran : clic sur le point le plus lointain
+        du chemin encore visible, puis on recommence. Renvoie le compte rendu pour le modèle."""
         self.walked = 0
         self.walk_complete = False
         chosen = self.targets.get(target)
         if not chosen:
             names = ", ".join(self.targets) or "none (no Game state this turn)"
             return f"goto: unknown target '{target}'. Targets this turn: {names}."
-        game = game_state.load()
-        steps = game_state.Floor(game).path(chosen["cell"]) if game else chosen["steps"]
-        if not steps:
-            return f"goto {target}: no known path to {chosen['label']} from here."
-        report = self.walk(steps, limit=MAX_GOTO)
-        return f"goto {target} ({chosen['label']}): " + report
+        label, goal = chosen["label"], chosen["cell"]
+        before = self.state
+        for click in range(GOTO_CLICKS):
+            game, ui = game_state.load(), game_state.load_ui()
+            if not (game and ui):
+                return f"goto {target}: the game state is not available."
+            floor = game_state.Floor(game)
+            if game["depth"] != self.memory.floor:
+                break  # l'escalier a été pris
+            steps = floor.path(goal)
+            if not steps:
+                return f"goto {target} ({label}): no known path from here."
+            # La case la plus lointaine du chemin qui est à l'écran, hors des boutons
+            cell, pick = floor.hero, None
+            for step in steps:
+                dx, dy = game_state.DIRECTIONS[step]
+                cell = (cell[0] + dx, cell[1] + dy)
+                pixel = game_state.screen_point(ui, floor.hero, cell)
+                if game_state.clickable(ui, pixel):
+                    pick = (cell, pixel)
+            if pick is None:  # rien de cliquable (interface devant) : au clavier
+                return f"goto {target} ({label}): " + self.walk(steps, limit=MAX_GOTO)
+            start = floor.hero
+            self.actions.click(self.to_2d(pick[1]), wait=False)
+            image, _, _ = self.window.wait_stable(timeout=WALK_TIMEOUT)
+            after = read_screen(image, self.reader)
+            self.state = after
+            game = game_state.load()
+            moved = game and (game["hero"]["x"], game["hero"]["y"]) != start
+            if moved:
+                self.walked += 1
+            happened = changes(before, after)
+            arrived = game and (game["depth"] != self.memory.floor or pick[0] == goal)
+            if arrived:
+                break
+            if not moved:
+                return (f"goto {target} ({label}): the hero did not move (the way may be blocked)"
+                        + (": " + "; ".join(happened) if happened else "."))
+            if happened:
+                return f"goto {target} ({label}): stopped on the way because: " + "; ".join(happened)
+            before = after
+        self.walk_complete = True
+        return f"goto {target} ({label}): done."
+
+    def use(self, item, verb, target=None):
+        """Utilise un objet du sac comme un joueur : ouvre l'inventaire, clique sur l'objet puis sur le bouton
+        de l'action (DRINK, EAT...), et sur une cible si l'action en demande une (THROW). Referme l'inventaire
+        s'il était fermé. Renvoie le compte rendu pour le modèle."""
+        opened = not self.state["inventory_open"]
+        if opened:
+            self.actions.press("inventory")
+        started = time.time()
+        ui = game_state.load_ui(newer_than=started)
+        slot = game_state.find_slot(ui, item) if ui else None
+        if not slot:
+            if opened:
+                self.actions.press("inventory")
+            return f"use: no '{item}' in your bag (use the name shown in 'Your bag')."
+        self.actions.click(self.to_2d(game_state.center(slot["rect"])))
+        ui = game_state.load_ui(newer_than=time.time())
+        button = game_state.find_button(ui, verb) if ui and verb else None
+        if not button:
+            choices = [b["text"] for b in (ui or {}).get("buttons", []) if b["window"] and b["text"]]
+            self.actions.press("close")
+            if opened:
+                self.actions.press("inventory")
+            return f"use: '{verb}' is not an action of {slot['item']} (its actions: {', '.join(choices)})."
+        self.actions.click(self.to_2d(game_state.center(button["rect"])))
+        report = f"use: {button['text'].lower()} {slot['item']}"
+        if target:
+            point = self.target_point(target)
+            if point:
+                self.actions.click(point)
+                report += f" at {target}"
+            else:
+                report += f" (target {target} is not on screen: the game may be waiting for a target)"
+        image, _, _ = self.window.wait_stable()
+        if opened and read_screen(image, self.reader)["inventory_open"]:
+            self.actions.press("inventory")
+        return report + "."
 
     def walk(self, steps, limit=MAX_STEPS):
         """Joue les pas un par un. S'arrête si un pas ne fait pas bouger le héros (mur, obstacle) ou si
@@ -567,7 +686,7 @@ class Harness:
                 return f"move: stopped after {done + 1} of {len(steps)} steps because: " + "; ".join(happened)
             before_image, before_state = image, state
         self.walk_complete = True
-        return f"move: all {len(steps)} steps done."
+        return f"move: all {len(steps)} step{'s' if len(steps) > 1 else ''} done."
 
     def examine(self, point_2d):
         """E (comme la loupe), clic sur la case, lecture de la fenêtre de description, puis fermeture."""

@@ -14,93 +14,59 @@ MAX_TOKENS = 500  # un plan de plusieurs actions est plus long qu'une action seu
 MAX_PLAN = 5      # actions au plus par réponse
 EXPECTED_TOKENS = 2_600  # estimation d'un appel avec image, avant d'avoir le vrai chiffre
 
-SYSTEM_PROMPT = """You are playing Shattered Pixel Dungeon, a turn-based roguelike, through a harness.
-Goal: reach floor 3. You start on floor 1, so you must take a DOWN staircase twice.
-Only DOWN staircases count: never take the UP staircase (the one you arrive by on each floor; examine
-calls it "Depth entrance" and says the stairs lead up). Jumping into a chasm never counts: the harness
-always refuses the jump.
+SYSTEM_PROMPT = """You are playing Shattered Pixel Dungeon, a turn-based roguelike, like a human player: you look at
+the screen, think, and act with the mouse and keyboard through a harness. Viewers watch your reasoning.
+Goal: go as deep as you can, floor by floor, by taking the DOWN stairs. Never take the UP stairs you arrive
+by (they lead back up). Jumping into a chasm is always refused.
 
-How it works
-- Each call you get: why you are called, the screen state read by the harness (HP, buttons, enemies
-  in view), the game log as text, often a screenshot, and sometimes the text of an examined tile.
-- You answer with a PLAN: a list of 1 to 5 actions, played in order. The harness plays them, waits
-  until the screen is still, and calls you again when the plan is over. If something changes on the way
-  (an enemy appears, HP drops, a window opens, an item, a log message...), the rest of the plan is dropped
-  and you are told why: plan only what is safe from what you see now. One or two actions is often enough.
-  Good plans: ["attack", "attack", "attack"] against one weak enemy next to you; ["wait", "wait", "wait"]
-  next to a doorway until an enemy steps in (the plan stops as soon as it is next to you); ["loot",
-  "move ..."]; ["rest", "move ..."].
-- click, examine and map always come alone (a plan of one action): you need to see their result first.
-- Positions: "point_2d": [x, y], normalized 0-1000 on the screenshot ([0, 0] top-left,
-  [1000, 1000] bottom-right). Point at the CENTER of the tile.
-- Memory: you only see one screenshot per call, so the harness keeps for you the current floor, your
-  recent actions with what followed (learn from them: do not repeat what did not work), and a notebook.
-  Write a note when you learn a lasting fact (where the down staircase is, a dead end, a dangerous
-  enemy, what an item does); remove notes that are no longer true. Do not note what you are doing right
-  now: your recent actions are already listed. A note close to an existing one replaces it. Screen positions
-  change when the camera moves, so describe places in words ("down stairs in the room north of the
-  start"), not with coordinates. What you examine is noted for you automatically.
+Each call you get
+- Why you are called (what changed), the screen state, the game log, a screenshot, and usually a "Game
+  state" block read from the game itself: an exact map around you, Targets (T1, T2...) with their distance,
+  and the content of your bag. Trust it over your reading of the screenshot.
+- Your memory: current floor, your goal, your recent actions with what followed, your notebook.
+
+You answer with a plan: 1 to 5 actions played in order. If something changes on the way (an enemy, damage,
+an item, a window, a message), the rest is dropped and you are told why: plan only what is safe now. One or
+two actions is often enough. goto, examine, click and map must be the LAST action of a plan: you need to see
+where you end up, or what you learn, before doing more.
 
 Actions
-- goto (target): when your message has a "Game state" block (read from the game itself), walk the shortest
-  known path to one of its Targets, by id ("T1", "T2"...): the DOWN stairs, an edge of the explored area,
-  an item, an enemy. THE way to travel: the harness plays the steps and stops early if something happens
-  (enemy, item, message), then tells you. Put goto last in a plan: the targets change once you have moved.
-- move (steps): a few precise steps. A list of one-tile steps played with the keyboard,
-  e.g. ["right", "right", "right", "down"] (up, down, left, right, up_left, up_right, down_left,
-  down_right; at most 10). Count the tiles on the screenshot: the hero's tile is in the center, one tile
-  is about 37 wide and 67 tall in point_2d units. Walking into a door opens it; walking into an adjacent
-  enemy attacks it; stepping onto the down staircase takes it. The harness plays the steps one by one
-  and stops early if a step is blocked (wall, obstacle) or if something happens (enemy, item, message),
-  then tells you how many steps were done.
-- click (point_2d): press a button inside an open window, or, on the MAP view only, walk far to an
-  explored tile in one go. Do not click to walk on the normal screen: use move.
-- examine (point_2d): the game describes what is on that tile (monster, item, trap, terrain).
-  It takes no game turn. When you are not sure what something is, examine it instead of guessing.
-- attack: attack the enemy shown on the red button (nearest enemy). Only when the red button is shown:
-  otherwise no enemy is next to the hero and the harness refuses it.
-- loot: pick up the item under the hero (blue button).
-- key (key): press a game key: inventory, journal, hero_info, close (closes a window), quickslot_1..6.
-- wait: skip one turn. rest: rest until healed or disturbed. resume: continue an interrupted walk.
-- map: see the MAP of everything explored on this floor (takes no game turn). Use it when you do not
-  know where to go, before going back, or to find unexplored doors and corridors. On the map, the hero
-  is in the yellow circle, and you can click any explored tile to walk there in one go.
+- goto (target id): click a target like a player: the hero walks there by himself and stops if an enemy
+  shows up. Clicking an enemy walks to it and attacks it; clicking the DOWN stairs takes them.
+- examine (target id, or point_2d): look at a monster, item or tile with the magnifier; the game gives its
+  name and description. Takes no game turn. Examine every new kind of monster (marked NOT EXAMINED YET)
+  before fighting it: the description tells how it fights. What you learn goes to your notebook.
+- attack: hit the enemy next to you (only when the red attack button is shown).
+- use (item, verb, optional target): use an item of your bag. item = its name as listed in "Your bag",
+  verb = one of its actions (DRINK, EAT, READ, EQUIP, THROW...). THROW needs a target id.
+- move (steps): a few precise one-tile steps with the keyboard (up, down, left, right, up_left, up_right,
+  down_left, down_right; at most 10), e.g. to step back into a doorway.
+- wait: skip one turn. rest: let many turns pass, until healed or disturbed. loot: pick up the item under you.
+- click (point_2d): press a button in an open window; [x, y] from 0 to 1000 on the screenshot.
+- key (key): inventory, journal, hero_info, close (closes a window), quickslot_1..6.
+- map: a zoomed-out view of the explored floor (useful only without a Game state block).
 
-What the screen shows
-- The camera follows the hero: he is at the center of the screen, around [500, 500] (higher, around
-  [500, 450], when the inventory panel is open). Never click his own tile: it does nothing useful.
-- The log is at the bottom left, the HP bar under it.
-- Red button on the right edge: an enemy can be attacked. Blue button: an item is under the hero.
-- Red counter with a skull under the top-right menu: enemies are in view.
-- Staircases: a dark pit with grey steps. The one near where you arrived goes UP: ignore it. When in
-  doubt, examine a staircase before taking it. Doors are brown wooden rectangles in walls.
-- Anything else you do not recognize: use examine.
-
-Play well
-- When there is a "Game state" block, trust it over your reading of the screenshot: its map is exact.
-  Go down as soon as the DOWN stairs are a target and you are not in danger; otherwise goto the nearest
-  edge of the explored area, an item on the way, or fight the enemy that comes to you.
-- Explore with long moves (up to 10 steps) toward doors, corridor openings and the edges of the explored
-  area. For a place far away, open the map and click it there.
-- Black areas are unexplored: walk to the edge of the lit area, the hero sees further from there.
-  Walls cannot be walked through: if a step is blocked, look again and go around.
-- When a way is blocked, do not insist: go back and take another door or corridor. Floors have many.
-- Items lying on the floor: walk onto them, the harness picks them up.
-- Explore each floor to find items and the down staircase, then go down.
-- Fight one enemy at a time, ideally in a corridor or a doorway. Do not walk into several enemies.
-- Sewer snakes dodge a lot. To hit them reliably, attack a snake when it stands on a DOOR tile right
-  next to you: wait near the doorway for it to step onto the door, then attack.
-- Rest when HP is low and no enemy is in view. Eat when the log says you are hungry.
-- Orange log lines are warnings, red ones are dangerous, green ones are good news.
+How the game works
+- Health: the hero heals by himself, about 1 HP every 10 turns, unless he is starving. "rest" lets those
+  turns pass: it is the safe way to heal, with no enemy in view. Dewdrops heal when picked up. One kind of
+  potion heals at once, but potions start unidentified (just a color): drinking an unknown potion is a
+  gamble, worth it when you are about to die.
+- Food does not heal: it stops hunger. Eat when the log says you are hungry: a starving hero stops healing
+  and loses HP.
+- Fight one enemy at a time, in a corridor or a doorway, with enough HP. When HP is low, back off and rest.
+  Throwing weapons (darts, shurikens, stones) hit from a distance.
+- Pick up the items you see (goto them). Explore until you find the DOWN stairs: doors and edges of the
+  explored area lead to new rooms.
+- Log colors: orange = warning, red = danger, green = good news.
 
 Answer
-- "reasoning": one short sentence (max 20 words), shown to viewers.
-- "goal": your current objective in a few words ("explore the corridor east of the start room", "kill the
-  rat", "find the down stairs"). It is shown to you next call: keep it until it is done, then set a new one.
-- "plan": 1 to 5 actions; in each, set the fields the action does not use to null. "label": what is at
-  point_2d ("unknown" if unsure).
-- "note_add": a short note to add to your notebook, or null. "note_remove": number of a note to delete,
-  or null. Most turns need no note."""
+- "reasoning": one or two short sentences in the first person, like a player thinking aloud ("That rat is
+  asleep: I grab the potion first, then I deal with it."). Shown to viewers.
+- "goal": your current objective in a few words. Shown to you next call: keep it until done, then change it.
+- "plan": 1 to 5 actions; in each, set the fields the action does not use to null. "label": what you click
+  or examine with point_2d, else null.
+- "note_add": a lasting fact worth remembering (where the stairs are, what an item does, a dangerous enemy),
+  or null. "note_remove": the number of a note that is no longer true, or null."""
 
 _POINT = {"type": "array", "items": {"type": "integer"}}
 _DIRECTIONS = ["up", "down", "left", "right", "up_left", "up_right", "down_left", "down_right"]
@@ -108,15 +74,17 @@ _ACTION = {
     "type": "object",
     "properties": {
         "action": {"type": "string",
-                   "enum": ["goto", "move", "click", "examine", "attack", "loot", "key", "wait", "rest", "resume",
-                            "map"]},
+                   "enum": ["goto", "move", "click", "examine", "attack", "use", "loot", "key", "wait", "rest",
+                            "resume", "map"]},
         "target": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "item": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "verb": {"anyOf": [{"type": "string"}, {"type": "null"}]},
         "steps": {"anyOf": [{"type": "array", "items": {"type": "string", "enum": _DIRECTIONS}}, {"type": "null"}]},
         "point_2d": {"anyOf": [_POINT, {"type": "null"}]},
         "key": {"anyOf": [{"type": "string", "enum": sorted(KEYS)}, {"type": "null"}]},
         "label": {"anyOf": [{"type": "string"}, {"type": "null"}]},
     },
-    "required": ["action", "target", "steps", "point_2d", "key", "label"],
+    "required": ["action", "target", "item", "verb", "steps", "point_2d", "key", "label"],
     "additionalProperties": False,
 }
 _SCHEMA = {
@@ -177,7 +145,7 @@ def usable_actions(situation):
         return ["click (an explored tile of the map, to walk there)"]
     if state["window_open"]:
         return ["click (a button of the window)", "key close"]
-    usable = ["goto (a target id)"] if situation.get("game") else []
+    usable = ["goto (a target id)", "use (an item of your bag)"] if situation.get("game") else []
     usable += ["move", "examine", "map", "wait", "rest", "key"]
     usable.append("attack (red button shown)" if state["attack_button"] else
                   "NOT attack (no red button: no enemy next to you)")
@@ -210,8 +178,13 @@ def _action(item):
     steps = item.get("steps")
     if action == "move" and isinstance(steps, list) and steps:
         return {"action": "move", "steps": steps}
-    if action == "goto" and isinstance(item.get("target"), str) and item["target"].strip():
-        return {"action": "goto", "target": item["target"].strip().upper()}
+    target = item.get("target").strip().upper() if isinstance(item.get("target"), str) and item["target"].strip() else None
+    if action == "goto" and target:
+        return {"action": "goto", "target": target}
+    if action == "examine" and target:
+        return {"action": "examine", "target": target}
+    if action == "use" and isinstance(item.get("item"), str) and isinstance(item.get("verb"), str):
+        return {"action": "use", "item": item["item"], "verb": item["verb"].upper(), "target": target}
     has_point = isinstance(point, list) and len(point) == 2
     if action == "click" and has_point:
         return {"point_2d": point, "label": item.get("label") or ""}

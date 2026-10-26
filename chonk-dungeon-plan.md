@@ -280,7 +280,19 @@ Un dossier par partie dans `logs/runs/<date-heure>/` :
 - [x] Testé dans le jeu sans API : `goto` vers la porte puis vers un bord, le héros sort de la salle de départ ; `--dry-run` : bloc « Game state » ajouté au message (~150 à 300 tokens)
 - Avec le jeu officiel, le fichier n'existe pas : le harness marche comme avant (vision seule)
 - [ ] Publier le fork sur GitHub (GPL) et le lier dans le README
-- [ ] Une vraie partie avec Mistral Large 4 (avec accord)
+- [x] Une vraie partie avec Mistral Large 4 : partie 3 ci-dessous
+
+**Partie 3 (26/10, `logs/runs/20261026-200603`, Chonk build, plans + goto)** : arrêtée par le budget (0,20 $) au tour 37, **étage 2 atteint au tour 29** (première fois), 4 ennemis tués (2 rats, un serpent, un éclaireur gnoll), 3 objets ramassés + une clé dorée, héros vivant à 35 %. 36 appels, ~3 700 tokens et **~0,0056 $ par appel** (contre ~0,0037 $ : prompt système plus long et bloc « Game state »). Aucun pas bloqué en exploration, aucun STUCK. Ce qui reste à corriger :
+- 3 fois des actions après `goto` (écartées par le harness, mais message répété)
+- Le serpent : 10 tours pour le tuer (il esquive), 100 % → 40 % de vie ; puis le gnoll en mode Danger : il faudrait se reposer (`rest`) avant de continuer
+- Ouvrir un coffre (dernier pas d'un `goto`) est lu comme un pas bloqué ; « all 1 steps » au lieu de « 1 step »
+
+**Jouer comme un joueur (26/10 soir)** : pour la vidéo, Mistral doit cliquer, regarder ses objets, se soigner et apprendre à connaître les monstres, pas avancer case par case.
+- [x] Le jeu écrit aussi `chonk_ui.json` (toutes les 0,25 s) : position à l'écran de la case du héros et taille d'une case, cases de l'inventaire avec leur objet, boutons (dans une fenêtre ou non). Les clics tombent exactement où un joueur cliquerait
+- [x] **`goto` = un clic sur la cible** : le jeu trace le chemin et fait marcher le héros, et s'arrête de lui-même si un ennemi apparaît. Hors de l'écran : clic sur le point le plus lointain du chemin encore visible (hors des boutons), jusqu'à 4 clics. Testé : porte en 1 clic, rat attaqué par un clic dessus
+- [x] **`use` (objet, verbe, cible facultative)** : ouvre l'inventaire, clique sur l'objet puis sur le bouton du jeu (DRINK, EAT...), referme. Le sac et les actions de chaque objet sont dans l'état. Testé : ration mangée (« That food tasted delicious! »), verbe impossible refusé avec la liste des actions
+- [x] **`examine` sur une cible** ; les monstres jamais examinés sont marqués « NOT EXAMINED YET ». Le jeu exporte le texte de leur fenêtre d'examen (l'OCR ne lit pas cette mise en page) : il va au modèle et au carnet
+- [x] Prompt réécrit (742 mots au lieu de 1 292) : un joueur qui pense à voix haute ; soins vérifiés dans le code du jeu (`Regeneration.java` : 1 PV tous les 10 tours sauf affamé, `rest` fait passer ces tours ; la rosée et une potion soignent ; la nourriture ne soigne pas) ; examiner les nouveaux monstres ; but : aller le plus profond possible
 
 ---
 
