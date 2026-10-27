@@ -1,0 +1,5 @@
+mistralai==3.2.0
+mss==10.2.0
+numpy==2.5.4
+pillow==13.0.0
+PyAutoGUI==0.9.54

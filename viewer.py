@@ -24,6 +24,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageTk
 
+from capture import find_window
+
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)  # pixels physiques, comme capture.py
 except (AttributeError, OSError):
@@ -145,7 +147,10 @@ def placement(width, move_game=False):
     `move_game` : s'il n'y a pas la place, colle d'abord le jeu en haut à gauche de l'écran.
     """
     user32 = ctypes.windll.user32
-    hwnd = user32.FindWindowW(None, GAME_TITLE)
+    try:
+        hwnd = find_window(GAME_TITLE)  # titre qui contient GAME_TITLE : le jeu ou son Chonk build
+    except SystemExit:
+        hwnd = None
     screen_w = user32.GetSystemMetrics(0)
     if not hwnd:
         return screen_w - width, 0, None
