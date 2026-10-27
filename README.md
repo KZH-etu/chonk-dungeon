@@ -39,7 +39,9 @@ Actions are those of a player:
 | `click`, `key`, `map` | Clicks a point (0–1000) in a window, presses a game key, shows the zoomed-out map |
 
 The model's reasoning, goal and plan are logged each turn (`logs/runs/<date>/turns.jsonl`, with screenshots).
-`viewer.py` shows them next to the game, live or as a replay for the video.
+`viewer.py` shows them next to the game, live or as a replay for the video: what just happened, Mistral's
+thoughts and goal, its numbered plan (also drawn on the screenshot), its notebook, HP, floor and cost. The window
+can be resized; wide or full screen (F11), the screenshot goes left and the reasoning right.
 
 ## The game: a fork of Shattered Pixel Dungeon
 
