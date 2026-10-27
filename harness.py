@@ -83,6 +83,7 @@ STUCK_REPEATS = 3
 NO_MOVE_LIMIT = 3  # déplacements sans effet de suite (même si les cibles diffèrent) -> message STUCK
 MAX_STEPS = 10     # pas au plus par action « move »
 MAX_GOTO = 40      # pas au plus par action « goto » au clavier (si aucun point du chemin n'est cliquable)
+STAIRS_TIMEOUT = 12  # secondes au plus pour l'écran de chargement d'un étage (goto sur l'escalier)
 GOTO_CLICKS = 4    # clics au plus par « goto » (une cible hors de l'écran demande plusieurs clics)
 WALK_ACTIONS = {"move", "goto"}
 NOT_STUCK_ACTIONS = {"wait", "rest", "examine", "map", "attack"}  # « attack » : en combat l'écran bouge à peine  # ne changent pas l'écran, et c'est voulu
@@ -611,9 +612,18 @@ class Harness:
             start = floor.hero
             self.actions.click(self.to_2d(pick[1]), wait=False)
             image, _, _ = self.window.wait_stable(timeout=WALK_TIMEOUT)
+            game = game_state.load()
+            loading = read_screen(image, self.reader)["hp_ratio"] == 0  # pas de barre de vie à l'écran
+            if loading and chosen["kind"] == "stairs" and game and game["depth"] == self.memory.floor:
+                # Écran de chargement « Descending... » : attendre le nouvel étage (sinon la vie se lit à 0)
+                deadline = time.time() + STAIRS_TIMEOUT
+                while time.time() < deadline and game and game["depth"] == self.memory.floor:
+                    time.sleep(0.3)
+                    game = game_state.load()
+                image, _, _ = self.window.wait_stable(timeout=WALK_TIMEOUT)
+                game = game_state.load()
             after = read_screen(image, self.reader)
             self.state = after
-            game = game_state.load()
             hero = game and (game["hero"]["x"], game["hero"]["y"])
             moved = game and hero != start
             if moved:
