@@ -15,7 +15,7 @@ taille d'une case), les cases de l'inventaire et les boutons. Le harness clique 
 Avec le jeu officiel, le fichier n'existe pas : tout cela est simplement absent (vision seule).
 
 Test (le build doit tourner) :
-    python game_state.py
+    python -m chonk_dungeon.game_state
 """
 
 import json

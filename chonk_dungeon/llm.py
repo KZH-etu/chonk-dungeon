@@ -8,7 +8,7 @@ import time
 from collections import deque
 from pathlib import Path
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parent.parent  # dossier du projet
 
 # Prix en $ par million de tokens (à confirmer sur mistral.ai/pricing)
 PRICES = {

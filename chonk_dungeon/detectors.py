@@ -8,9 +8,9 @@ Positions et couleurs mesurées sur de vraies captures (étape 8). Les captures 
 référence, recadrées à la main, sont recalées sur la barre de vie (hud_offset).
 
 Vérification sur les captures de référence (sans appel API) :
-    python detectors.py --check
+    python -m chonk_dungeon.detectors --check
 Lecture d'une capture :
-    python detectors.py chemin/capture.png
+    python -m chonk_dungeon.detectors chemin/capture.png
 """
 
 import argparse
@@ -20,10 +20,10 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from ocr import HP_BAR_LEFT, HP_BAR_TOP, Reader, hud_offset
+from .ocr import HP_BAR_LEFT, HP_BAR_TOP, Reader, hud_offset
 
-ROOT = Path(__file__).parent
-GROUND_TRUTH = ROOT / "images" / "screen_shot_game" / "ground_truth.json"
+ROOT = Path(__file__).resolve().parent.parent  # dossier du projet
+GROUND_TRUTH = ROOT / "samples" / "screen_shot_game" / "ground_truth.json"
 
 HP_BAR_RIGHT = 470            # bord droit de la barre pleine
 HP_ROW = HP_BAR_TOP + 25      # ligne sous le texte « 20/20 »

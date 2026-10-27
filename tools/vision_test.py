@@ -5,10 +5,10 @@ et de lire l'interface, dessine les points sur l'image, mesure l'erreur par
 rapport à ground_truth.json, et note les tokens, le temps et le coût.
 
 Exemples :
-    python vision_test.py                                   # toutes les captures, 1024 et 768 px
-    python vision_test.py images/screen_shot_game/SPD_in_fight.png --widths 768
-    python vision_test.py --model mistral-medium-latest --widths 1024 768
-    python vision_test.py --dry-run                         # prépare les images sans appeler l'API
+    python tools/vision_test.py                                   # toutes les captures, 1024 et 768 px
+    python tools/vision_test.py samples/screen_shot_game/SPD_in_fight.png --widths 768
+    python tools/vision_test.py --model mistral-medium-latest --widths 1024 768
+    python tools/vision_test.py --dry-run                         # prépare les images sans appeler l'API
 """
 
 import argparse
@@ -16,16 +16,19 @@ import base64
 import io
 import json
 import re
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from llm import BUDGET_USD, PRICES, TOKENS_PER_MINUTE, complete, env_value, load_api_key, prices_for
+ROOT = Path(__file__).resolve().parent.parent  # dossier du projet
+sys.path.insert(0, str(ROOT))  # outil de développement, lancé comme script : le paquet est à côté
 
-ROOT = Path(__file__).parent
-IMAGES_DIR = ROOT / "images" / "screen_shot_game"
+from chonk_dungeon.llm import BUDGET_USD, PRICES, TOKENS_PER_MINUTE, complete, env_value, load_api_key, prices_for
+
+IMAGES_DIR = ROOT / "samples" / "screen_shot_game"
 GROUND_TRUTH = IMAGES_DIR / "ground_truth.json"
 LOGS_DIR = ROOT / "logs" / "vision_test"
 

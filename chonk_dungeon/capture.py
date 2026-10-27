@@ -9,8 +9,8 @@ déclare « DPI aware » pour que mss (capture) et pyautogui (clics) parlent la
 même langue, même avec une mise à l'échelle Windows à 125 %.
 
 Test :
-    python capture.py              # trouve la fenêtre, enregistre une capture
-    python capture.py --stable     # mesure le temps de stabilisation de l'écran
+    python -m chonk_dungeon.capture              # trouve la fenêtre, enregistre une capture
+    python -m chonk_dungeon.capture --stable     # mesure le temps de stabilisation de l'écran
 """
 
 import argparse
@@ -32,7 +32,7 @@ try:
 except (AttributeError, OSError):
     ctypes.windll.user32.SetProcessDPIAware()
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parent.parent  # dossier du projet
 LOGS_DIR = ROOT / "logs" / "capture"
 WINDOW_TITLE = "Shattered Pixel Dungeon"
 MODEL_WIDTH = 768

@@ -8,9 +8,9 @@ La police installée avec le jeu (pixel_font.ttf) ne suffit pas : le moteur du
 jeu la dessine avec son propre lissage, différent de celui de Python.
 
 Apprentissage (à refaire quand on ajoute des captures dans OCR_SAMPLES) :
-    python ocr.py --learn
+    python -m chonk_dungeon.ocr --learn
 Lecture d'une capture :
-    python ocr.py chemin/capture.png
+    python -m chonk_dungeon.ocr chemin/capture.png
 """
 
 import argparse
@@ -20,8 +20,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-ROOT = Path(__file__).parent
-GLYPHS_FILE = ROOT / "ocr_glyphs.json"
+ROOT = Path(__file__).resolve().parent.parent  # dossier du projet
+GLYPHS_FILE = Path(__file__).with_name("ocr_glyphs.json")
 UNKNOWN = "?"
 
 # Repère : coin haut gauche de la barre de vie sur une capture 1280x720
@@ -281,56 +281,56 @@ class Reader:
 # Captures et texte exact de leurs lignes de journal, de la plus ancienne à la plus récente
 # (seulement les lignes visibles ; None = ligne à ignorer)
 OCR_SAMPLES = {
-    "images/ocr/log_seed_raido.png": [
+    "samples/ocr/log_seed_raido.png": [
         "You defeated marsupial rat.", "You defeated marsupial rat.", "You defeated sewer snake.",
         "You picked up: seed of fadeleaf.", "You picked up: gold.", "You picked up: scroll of RAIDO."],
-    "images/ocr/status_healing.png": [
+    "samples/ocr/status_healing.png": [
         "You defeated marsupial rat.", "You defeated sewer snake.", "You picked up: gold.",
         "You picked up: silver potion.", "Your wounds begin to close.", "You picked up: indigo potion."],
-    "images/ocr/death_game_over.png": [
+    "samples/ocr/death_game_over.png": [
         "You defeated marsupial rat.", "You picked up: scroll of KAUNAN.", "You are hungry.",
         "That food tasted delicious!", "You defeated marsupial rat.", "Marsupial rat killed you..."],
-    "images/ocr/log_hungry_scroll.png": [
+    "samples/ocr/log_hungry_scroll.png": [
         "You return to floor 1 of the dungeon.", "You defeated sewer snake.", "You defeated marsupial rat.",
         "You picked up: scroll of KAUNAN.", "You are hungry.", "That food tasted delicious!"],
-    "images/screen_shot_game/SPD_scene_with_trap_treasure.png": [
+    "samples/screen_shot_game/SPD_scene_with_trap_treasure.png": [
         "You collect the dewdrop into your waterskin.", "You don't have a matching key.",
         "You don't have a matching key.", "You defeated marsupial rat.",
         "You picked up: potion of healing.", "You defeated sewer snake."],
-    "images/screen_shot_game/SPD_scene_with_two_enemies_object_trap_and_staircase_descending.png": [
+    "samples/screen_shot_game/SPD_scene_with_two_enemies_object_trap_and_staircase_descending.png": [
         "You don't have a matching key.", "You don't have a matching key.", "You defeated marsupial rat.",
         "You picked up: potion of healing.", "You defeated sewer snake.", "You picked up: gold."],
-    "images/screen_shot_game/SPD_in_fight.png": ["You descend to floor 1 of the dungeon."],
+    "samples/screen_shot_game/SPD_in_fight.png": ["You descend to floor 1 of the dungeon."],
 }
 
 
 # Fenêtres (images recadrées sur la fenêtre, ex. résultats d'« examiner ») et texte de chaque ligne
 WINDOW_SAMPLES = {
-    "images/ocr/windows/journal_notes.png": [
+    "samples/ocr/windows/journal_notes.png": [
         "Adventuring Notes +",
         "As you journey through the dungeon, you will automatically record noteworthy",
         "things here.",
         "Floor 1"],
-    # Zones de texte découpées dans les captures images/screen_shot_game/SPD_hero_info_* et SPD_journal_*
-    "images/ocr/windows/hero_title.png": ["LEVEL 1 DUELIST"],
-    "images/ocr/windows/hero_stats.png": [
+    # Zones de texte découpées dans les captures samples/screen_shot_game/SPD_hero_info_* et SPD_journal_*
+    "samples/ocr/windows/hero_title.png": ["LEVEL 1 DUELIST"],
+    "samples/ocr/windows/hero_stats.png": [
         "Strength 10", "Health 20/20", "Experience 8/10", "Gold Collected 126", "Maximum Depth 1",
         "Dungeon Seed RYB-YCP-RKQ"],
-    "images/ocr/windows/talents_tier.png": ["Tier 1"],
-    "images/ocr/windows/talents_reach.png": ["Reach level 6 to unlock more talents."],
-    "images/ocr/windows/catalog_equipment.png": ["Equipment (11/171)"],
-    "images/ocr/windows/catalog_melee.png": ["Melee Weapons (3/33):"],
-    "images/ocr/windows/catalog_armor.png": ["Armor (2/11):"],
-    "images/ocr/windows/catalog_enchant.png": ["Enchantments and Curses (0/27):"],
-    "images/ocr/windows/item_title.png": ["Quarterstaff"],
-    "images/ocr/windows/item_body.png": [
+    "samples/ocr/windows/talents_tier.png": ["Tier 1"],
+    "samples/ocr/windows/talents_reach.png": ["Reach level 6 to unlock more talents."],
+    "samples/ocr/windows/catalog_equipment.png": ["Equipment (11/171)"],
+    "samples/ocr/windows/catalog_melee.png": ["Melee Weapons (3/33):"],
+    "samples/ocr/windows/catalog_armor.png": ["Armor (2/11):"],
+    "samples/ocr/windows/catalog_enchant.png": ["Enchantments and Curses (0/27):"],
+    "samples/ocr/windows/item_title.png": ["Quarterstaff"],
+    "samples/ocr/windows/item_body.png": [
         "A staff of hardwood, its ends are shod with", "iron.",
         "Typically this tier-2 melee weapon deals 2-12", "damage and requires 12 strength to use",
         "properly. Probably this weapon is too heavy", "for you.", "This weapon blocks 0-2 damage.",
         "The Duelist can assume a defensive stance", "with a quarterstaff. This stance takes no",
         "time to activate and triples her evasion", "typically for 4 turns."],
-    "images/ocr/windows/guide_title.png": ["Tome of Dungeon Mastery"],
-    "images/ocr/windows/examine_stairs_up.png": ["Depth entrance", "Stairs lead up to the upper depth."],
+    "samples/ocr/windows/guide_title.png": ["Tome of Dungeon Mastery"],
+    "samples/ocr/windows/examine_stairs_up.png": ["Depth entrance", "Stairs lead up to the upper depth."],
 }
 
 

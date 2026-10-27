@@ -1,3 +1,5 @@
+> Depuis le 27/10 le code est dans le paquet `chonk_dungeon/` (ex. `harness.py` → `chonk_dungeon/harness.py`, lancé par `python -m chonk_dungeon play`) ; les noms de fichiers ci-dessous sont ceux d'avant.
+
 # Chonk Dungeon : plan de route
 
 Harness permettant à **Mistral Large 4** de jouer à **Shattered Pixel Dungeon** par la vision (captures d'écran, puis clavier et souris).

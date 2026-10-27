@@ -24,9 +24,9 @@ Format d'une décision (celui de l'étape 11) :
 avec des champs "reasoning", "goal", "note_add", "note_remove" facultatifs.
 
 Exemples (sans API ; « ; » sépare les tours, « + » les actions d'un même plan) :
-    python harness.py --brain scripted --script "right; left; examine 537 500; wait"
-    python harness.py --brain scripted --script "move right right + wait + move left left"
-    python harness.py --brain manual
+    python -m chonk_dungeon play --brain scripted --script "right; left; examine 537 500; wait"
+    python -m chonk_dungeon play --brain scripted --script "move right right + wait + move left left"
+    python -m chonk_dungeon play --brain manual
 """
 
 import argparse
@@ -37,16 +37,16 @@ import traceback
 from collections import deque
 from datetime import datetime
 
-from actions import Actions
-from brain import MAX_PLAN
-from budget import spent
-from capture import LOGS_DIR, GameWindow, changed_fraction, resize
-from detectors import changes, new_messages, read_screen, window_rect
-import game_state
-from llm import BUDGET_USD
-from memory import Memory, describe_action
-from ocr import Reader
-from overview import ZOOM_IN_KEY, ZOOM_OUT_KEY, ZOOM_STEPS, build_map, map_to_screen
+from .actions import Actions
+from .brain import MAX_PLAN
+from .budget import spent
+from .capture import LOGS_DIR, GameWindow, changed_fraction, resize
+from .detectors import changes, new_messages, read_screen, window_rect
+from . import game_state
+from .llm import BUDGET_USD
+from .memory import Memory, describe_action
+from .ocr import Reader
+from .overview import ZOOM_IN_KEY, ZOOM_OUT_KEY, ZOOM_STEPS, build_map, map_to_screen
 
 # Modes, du plus prioritaire au moins prioritaire
 DEAD, MENU, DANGER, COMBAT, ALERT, EXPLORE = "Dead", "Menu", "Danger", "Combat", "Alert", "Exploration"
@@ -751,7 +751,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="cerveau mistral : affiche le prompt sans appeler l'API")
     args = parser.parse_args()
     if args.brain == "mistral":
-        from brain import MistralBrain
+        from .brain import MistralBrain
         brain = MistralBrain(args.model, args.reasoning, args.budget, args.dry_run)
     elif args.brain == "scripted":
         brain = ScriptedBrain(args.script)
@@ -793,7 +793,7 @@ def main():
     if hasattr(brain, "summary"):
         print(f"\nBilan de la session : {brain.summary()}")
         print(f"Budget : {spent():.3f} $ dépensés en tout (selon les logs), reste {BUDGET_USD - spent():.2f} $"
-              " (détail : python budget.py)")
+              " (détail : python -m chonk_dungeon budget)")
 
 
 if __name__ == "__main__":

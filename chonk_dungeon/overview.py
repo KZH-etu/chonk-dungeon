@@ -12,7 +12,7 @@ convertit le point en position écran, clique tant que la vue est dézoomée, pu
 Coût : une image de la taille d'une capture normale, seulement quand la carte sert.
 
 Test sur une capture dézoomée (sans jeu ni API) :
-    python overview.py capture.png      # écrit capture-map.png à côté
+    python -m chonk_dungeon.overview capture.png      # écrit capture-map.png à côté
 """
 
 import argparse
@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
-from ocr import LOG_LINE_TOPS, LOG_WIDTH, core_mask, cut_at_gap
+from .ocr import LOG_LINE_TOPS, LOG_WIDTH, core_mask, cut_at_gap
 
 ZOOM_OUT_KEY, ZOOM_IN_KEY = "minus", "equals"
 ZOOM_STEPS = 2            # du zoom normal au zoom minimal (vérifié en jeu : 5 cycles sur 5)

@@ -4,7 +4,7 @@ Chaque action met le jeu au premier plan, agit, puis attend que l'écran se
 stabilise et renvoie la nouvelle capture.
 
 Test (le héros doit être au milieu d'une salle dégagée, sans ennemi) :
-    python actions.py --test
+    python -m chonk_dungeon.actions --test
 Pendant le test, ne pas toucher au clavier ni à la souris. Arrêt d'urgence :
 envoyer la souris dans un coin de l'écran (sécurité de pyautogui).
 """
@@ -17,7 +17,7 @@ from datetime import datetime
 
 import pyautogui
 
-from capture import LOGS_DIR, GameWindow, changed_fraction
+from .capture import LOGS_DIR, GameWindow, changed_fraction
 
 pyautogui.FAILSAFE = True  # souris dans un coin = arrêt immédiat
 pyautogui.PAUSE = 0.05

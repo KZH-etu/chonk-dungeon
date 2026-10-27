@@ -39,7 +39,7 @@ Actions are those of a player:
 | `click`, `key`, `map` | Clicks a point (0–1000) in a window, presses a game key, shows the zoomed-out map |
 
 The model's reasoning, goal and plan are logged each turn (`logs/runs/<date>/turns.jsonl`, with screenshots).
-`viewer.py` shows them next to the game, live or as a replay for the video: what just happened, Mistral's
+The viewer shows them next to the game, live or as a replay for the video: what just happened, Mistral's
 thoughts and goal, its numbered plan (also drawn on the screenshot), its notebook, HP, floor and cost. The window
 can be resized; wide or full screen (F11), the screenshot goes left and the reasoning right.
 
@@ -58,29 +58,52 @@ Gameplay is unchanged. The model sees nothing a player could not see.
 
 ## Running it
 
-Windows, Python 3.12, a 1280×720 game window. The keyboard mapping assumes an AZERTY layout (see `actions.py`).
+Windows, Python 3.12, a 1280×720 game window. The keyboard mapping assumes an AZERTY layout (see `chonk_dungeon/actions.py`).
 
 ```powershell
 python -m venv .venv; .venv\Scripts\pip install -r requirements.txt
 # .env: MISTRAL_API_KEY=...  and  CHONK_MODEL=mistral-large-4 (or another Mistral vision model)
 
 # Build the fork once (JDK 21): in the fork folder, gradlew desktop:release
-.\launch_game.ps1                 # starts the Chonk build (CHONK_JAVA / CHONK_JAR to change the paths)
+.\scripts\launch_game.ps1         # starts the Chonk build (CHONK_JAVA / CHONK_JAR to change the paths)
 
-python harness.py --brain mistral --max-turns 60 --budget 0.30 --goal-floor 0
-python viewer.py                  # live view of the model's reasoning; --replay for a past run
+python -m chonk_dungeon play --brain mistral --max-turns 60 --budget 0.30 --goal-floor 0
+python -m chonk_dungeon view      # live view of the model's reasoning, next to the game
+python -m chonk_dungeon view logs/runs/<date> --replay --fullscreen   # replay a past game
+python -m chonk_dungeon budget    # money spent so far, from the logs
 ```
+
+Each command lists its options with `--help`. In the viewer, Space pauses a replay, ← → step through turns,
+F11 toggles full screen and Ctrl + / Ctrl − change the text size.
 
 Tests without the API: `--dry-run` prints the prompt, `--brain manual` takes actions typed in the console,
 `--brain scripted --script "goto T1; examine T2"` plays a fixed list. The harness pauses when another window
 covers the game, and stops at the `--budget` limit (in $, counted from the API's token usage).
 
-## Files
+## Project layout
 
-`harness.py` main loop · `brain.py` prompt, JSON schema, Mistral call · `game_state.py` map, targets, bag ·
-`detectors.py` / `ocr.py` reading the screen · `actions.py` keyboard and mouse · `memory.py` goal, history,
-notebook · `llm.py` API client with rate limit and retries · `budget.py` cost · `viewer.py` video view ·
-`capture.py` window capture · `overview.py` zoomed-out map.
+```
+chonk_dungeon/          the harness (python -m chonk_dungeon play | view | budget)
+  harness.py            main loop: read the screen, call the brain, play its plan
+  brain.py              prompt, JSON schema of the answer, Mistral call
+  llm.py                API client: rate limit, retries, cost
+  memory.py             goal, recent actions and their results, notebook
+  game_state.py         exact state from the Chonk build: map, targets, bag
+  capture.py            capture of the game window
+  detectors.py, ocr.py  reading the screen: HP, buttons, windows, death, game log (pixel font)
+  overview.py           zoomed-out floor map
+  actions.py            keyboard and mouse
+  budget.py             cost of the games, from the logs
+  viewer.py             the view for the video, live or replay
+scripts/launch_game.ps1 starts the Chonk build
+tools/vision_test.py    benchmark of the model's vision on reference screenshots
+samples/                reference screenshots (detector and OCR checks, vision benchmark)
+docs/development-plan.md  development notes (in French)
+logs/                   games, screenshots and costs (not in git)
+```
+
+Self-checks without the API: `python -m chonk_dungeon.detectors --check` (screen reading on the reference
+screenshots), `python -m chonk_dungeon.game_state` (state exported by the running game).
 
 ## Credits
 

@@ -8,15 +8,15 @@ Additionne les coûts enregistrés dans les logs :
 
 C'est une estimation (prix de llm.PRICES) : la console Mistral fait foi.
 
-    python budget.py
+    python -m chonk_dungeon budget
 """
 
 import json
 from pathlib import Path
 
-from llm import BUDGET_USD
+from .llm import BUDGET_USD
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parent.parent  # dossier du projet
 LOGS = ROOT / "logs"
 EXTRA = LOGS / "budget_extra.json"
 

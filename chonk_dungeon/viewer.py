@@ -7,8 +7,8 @@ ni le jeu ni le harness : ce qui vient de se passer, ce que pense Mistral, son o
 Elle ne fait que lire les logs du harness (turns.jsonl et les captures) : aucun lien avec
 la boucle, aucun appel API. Elle suit une partie en cours ou rejoue une partie finie.
 
-    python viewer.py                                  # suit la partie en cours (dossier le plus récent)
-    python viewer.py logs/runs/<date-heure> --replay  # rejoue une partie (2 s par tour)
+    python -m chonk_dungeon view                                  # suit la partie en cours (dossier le plus récent)
+    python -m chonk_dungeon view logs/runs/<date-heure> --replay  # rejoue une partie (2 s par tour)
         Espace : pause / reprise ; flèches gauche et droite : tour précédent / suivant
         F11 : plein écran (Échap pour en sortir) ; Ctrl + / Ctrl - : texte plus grand / plus petit
 
@@ -29,14 +29,14 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 
-from capture import find_window
+from .capture import find_window
 
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)  # pixels physiques, comme capture.py
 except (AttributeError, OSError):
     ctypes.windll.user32.SetProcessDPIAware()
 
-RUNS = Path(__file__).parent / "logs" / "runs"
+RUNS = Path(__file__).resolve().parent.parent / "logs" / "runs"
 GAME_TITLE = "Shattered Pixel Dungeon"
 WIDTH, HEIGHT = 720, 1120     # taille de départ (fenêtre étroite, à côté du jeu)
 PAD = 18

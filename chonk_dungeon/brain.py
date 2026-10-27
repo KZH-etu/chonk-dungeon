@@ -6,9 +6,9 @@ l'API (json_schema strict) : le modèle ne peut ni oublier un champ ni inventer 
 
 import json
 
-from actions import KEYS
-from capture import to_data_url
-from llm import RateLimiter, complete, cost_usd, default_model, make_client
+from .actions import KEYS
+from .capture import to_data_url
+from .llm import RateLimiter, complete, cost_usd, default_model, make_client
 
 MAX_TOKENS = 500  # un plan de plusieurs actions est plus long qu'une action seule
 MAX_PLAN = 5      # actions au plus par réponse
