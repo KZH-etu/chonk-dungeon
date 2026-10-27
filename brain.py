@@ -53,7 +53,9 @@ How the game works
   gamble, worth it when you are about to die.
 - Food does not heal: it stops hunger. Eat when the log says you are hungry: a starving hero stops healing
   and loses HP.
-- Fight one enemy at a time, in a corridor or a doorway, with enough HP. When HP is low, back off and rest.
+- Fight one enemy at a time, in a corridor or a doorway, with enough HP. When HP is low, back off and rest,
+  but only once no enemy hunts you: rest is interrupted at once, and most monsters are as fast as you (crabs
+  are faster), so running rarely saves you. Low HP with an enemy next to you: drink a potion, even unknown.
   Throwing weapons (darts, shurikens, stones) hit from a distance.
 - Pick up the items you see (goto them). Explore until you find the DOWN stairs: doors and edges of the
   explored area lead to new rooms.

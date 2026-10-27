@@ -61,9 +61,15 @@ WALK_TIMEOUT = 20.0       # un long déplacement peut durer plusieurs secondes
 # Modes
 # --------------------------------------------------------------------------- #
 
+def killed(state):
+    """La vie à 0 et « ... killed you » dans le journal : mort, avant même le bandeau « Game Over »."""
+    return state["hp_ratio"] == 0 and any("killed you" in line["text"].lower() or "you died" in line["text"].lower()
+                                          for line in state["messages"])
+
+
 def mode_for(state, previous):
     """Mode du tour, d'après l'état lu à l'écran et celui du tour précédent."""
-    if state["dead"]:
+    if state["dead"] or killed(state):
         return DEAD
     if state["window_open"]:
         return MENU
@@ -88,6 +94,8 @@ GOTO_CLICKS = 4    # clics au plus par « goto » (une cible hors de l'écran de
 WALK_ACTIONS = {"move", "goto"}
 NOT_STUCK_ACTIONS = {"wait", "rest", "examine", "map", "attack"}  # « attack » : en combat l'écran bouge à peine  # ne changent pas l'écran, et c'est voulu
 NEW_GAME_BUTTON = [500, 532]  # bouton « New Game » de l'écran de mort (640, 383 sur 1280x720)
+START_BUTTON = [167, 914]     # puis « Start » sur l'écran du choix du héros (le guerrier reste choisi)
+INTRO_CONTINUE = [508, 720]   # puis « Continue » sous le texte d'introduction
 COVERED_CHECKS, COVERED_PAUSE = 20, 3.0  # jeu couvert par une autre fenêtre : on attend jusqu'à 1 min
 
 
@@ -121,7 +129,7 @@ def plan_interrupted(action, start, before, after):
     """Pourquoi arrêter un plan après `action` : ce qui a changé et que le plan ne pouvait pas prévoir
     (`start` : état au début du plan ; `before`, `after` : avant et après l'action). Liste vide : on continue."""
     why = []
-    if after["dead"]:
+    if after["dead"] or killed(after):
         why.append("you died")
     if before["window_open"] != after["window_open"]:
         why.append("a window opened" if after["window_open"] else "the window closed")
@@ -303,10 +311,17 @@ class Harness:
     def start_new_game(self):
         """Écran de mort : bouton « New Game ». Renvoie True si une nouvelle partie a bien commencé."""
         self.window.focus()
-        self.actions.click(NEW_GAME_BUTTON, wait=False)
-        self.window.wait_stable(timeout=10.0)
-        _, state = self.look()
-        started = not state["dead"] and state["hp_ratio"] > 0 and not state["window_open"]
+        started = False
+        for button in (NEW_GAME_BUTTON, START_BUTTON, INTRO_CONTINUE):
+            self.actions.click(button, wait=False)
+            self.window.wait_stable(timeout=10.0)
+            _, state = self.look()
+            started = not state["dead"] and state["hp_ratio"] > 0 and not state["window_open"]
+            if started:
+                break
+        if started and state["inventory_open"]:
+            self.actions.press("inventory")  # le jeu ouvre le sac au début : on voit mieux la carte sans
+            _, state = self.look()
         print("Nouvelle partie lancée." if started else
               "Après « New Game », l'écran n'est pas une partie en cours : arrêt (à vérifier à la main).")
         return started
