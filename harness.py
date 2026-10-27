@@ -325,7 +325,7 @@ class Harness:
             self.turns = turn
             screen_changed = previous_image is None or changed_fraction(previous_image, image) > MOVED
             if last_action and last_action.get("action") in WALK_ACTIONS:
-                screen_changed = self.walked > 0  # un aller-retour ramène le même écran, mais le héros a bougé
+                screen_changed = self.walked > 0 or (last_action.get("action") == "goto" and self.walk_complete)  # un aller-retour ramène le même écran, mais le héros a bougé
             stuck = self.check_stuck(last_action, screen_changed)
             if stuck and state["window_open"]:
                 self.actions.press("close")  # sans fenêtre, Échap ouvrirait le menu du jeu
@@ -593,11 +593,14 @@ class Harness:
             if game["depth"] != self.memory.floor:
                 break  # l'escalier a été pris
             steps = floor.path(goal)
-            if not steps:
-                return f"goto {target} ({label}): no known path from here."
-            # La case la plus lointaine du chemin qui est à l'écran, hors des boutons
             cell, pick = floor.hero, None
-            for step in steps:
+            if not steps:  # un monstre bouche le passage ? Le jeu trouve peut-être un chemin si la cible est à l'écran
+                pixel = game_state.screen_point(ui, floor.hero, goal)
+                if not game_state.clickable(ui, pixel):
+                    return f"goto {target} ({label}): no known path from here."
+                pick = (goal, pixel)
+            # La case la plus lointaine du chemin qui est à l'écran, hors des boutons
+            for step in steps or []:
                 dx, dy = game_state.DIRECTIONS[step]
                 cell = (cell[0] + dx, cell[1] + dy)
                 pixel = game_state.screen_point(ui, floor.hero, cell)
@@ -611,11 +614,14 @@ class Harness:
             after = read_screen(image, self.reader)
             self.state = after
             game = game_state.load()
-            moved = game and (game["hero"]["x"], game["hero"]["y"]) != start
+            hero = game and (game["hero"]["x"], game["hero"]["y"])
+            moved = game and hero != start
             if moved:
                 self.walked += 1
             happened = changes(before, after)
-            arrived = game and (game["depth"] != self.memory.floor or pick[0] == goal)
+            # Arrivé : l'escalier pris, la case atteinte, ou l'ennemi cliqué (le héros va au contact et frappe)
+            arrived = game and (game["depth"] != self.memory.floor or hero == goal
+                                or (pick[0] == goal and chosen["kind"] == "enemy"))
             if arrived:
                 break
             if not moved:

@@ -269,7 +269,8 @@ def describe(state, found):
     floor = Floor(state)
     hero = state["hero"]
     lines = [f"Game state (exact, read from the game): floor {state['depth']}, HP {hero['hp']}/{hero['ht']},"
-             f" hero level {hero['level']}, hunger {hero['hunger']}.",
+             f" hero level {hero['level']}, hunger {hero['hunger']}"
+             + (" (not hungry now: older 'hungry' or 'starving' log lines are over)." if hero["hunger"] == "ok" else "."),
              f"Map around you (1 character = 1 tile, rows from top to bottom; {LEGEND}):"]
     lines += floor.view()
     free = floor.free_directions()
