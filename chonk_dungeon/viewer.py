@@ -25,6 +25,7 @@ import re
 import tkinter as tk
 import tkinter.font as tkfont
 from ctypes import wintypes
+from datetime import datetime
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageTk
@@ -332,11 +333,12 @@ FONT_SIZES = {"title": 17, "mode": 22, "status": 22, "card": 14, "event": 17, "q
 
 
 class Viewer:
-    def __init__(self, root, run_dir=None, replay=False, delay=2.0, start=1, zoom=1.0):
+    def __init__(self, root, run_dir=None, replay=False, delay=2.0, start=1, zoom=1.0, speed=None):
         self.root = root
         self.run_dir = run_dir
         self.replay = replay
         self.delay_ms = round(delay * 1000)
+        self.speed = speed  # rejeu au rythme réel de la partie, accéléré speed fois (pour suivre la vidéo du jeu)
         self.paused = False
         self.index = 0
         self.zoom = zoom
@@ -365,7 +367,7 @@ class Viewer:
             for key, step in (("<space>", None), ("<Right>", 1), ("<Left>", -1)):
                 root.bind(key, lambda _, step=step: self.on_key(step))
             self.root.after(50, self.show_index)
-            self.root.after(self.delay_ms, self.tick)
+            self.root.after(self.next_delay(), self.tick)
         else:
             self.wait_text("Waiting for a game to start...")
             self.poll()
@@ -600,7 +602,14 @@ class Viewer:
         if not self.paused and self.index < len(self.log.turns) - 1:
             self.index += 1
             self.show_index()
-        self.root.after(self.delay_ms, self.tick)
+        self.root.after(self.next_delay(), self.tick)
+
+    def next_delay(self):
+        """Temps avant le tour suivant : fixe, ou celui de la vraie partie divisé par speed."""
+        if not self.speed or self.paused or self.index >= len(self.log.turns) - 1:
+            return self.delay_ms
+        now, after = (datetime.fromisoformat(self.log.turns[i]["time"]) for i in (self.index, self.index + 1))
+        return max(round((after - now).total_seconds() * 1000 / self.speed), 1)
 
     def on_key(self, step):
         if step is None:
@@ -616,6 +625,9 @@ def main():
     parser.add_argument("run", nargs="?", type=Path, help="dossier de partie (par défaut : la plus récente)")
     parser.add_argument("--replay", action="store_true", help="rejoue la partie au lieu de la suivre en direct")
     parser.add_argument("--delay", type=float, default=2.0, help="rejeu : secondes par tour")
+    parser.add_argument("--speed", type=float,
+                        help="rejeu au rythme réel de la partie, accéléré N fois (remplace --delay) :"
+                             " se synchronise avec la vidéo du jeu accélérée autant")
     parser.add_argument("--start", type=int, default=1, help="rejeu : premier tour affiché")
     parser.add_argument("--title", help="titre en haut de la fenêtre")
     parser.add_argument("--fullscreen", action="store_true", help="plein écran (F11 pour basculer)")
@@ -639,7 +651,7 @@ def main():
     root.minsize(420, 400)
     if warning:
         print(warning, flush=True)
-    viewer = Viewer(root, args.run, args.replay, args.delay, args.start, args.zoom)
+    viewer = Viewer(root, args.run, args.replay, args.delay, args.start, args.zoom, args.speed)
     if args.title:
         viewer.title.config(text=args.title)
     if args.fullscreen:

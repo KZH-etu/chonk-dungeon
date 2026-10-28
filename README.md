@@ -1,6 +1,7 @@
 # Chonk Dungeon
 
-**Mistral Large plays Shattered Pixel Dungeon.** An entry for Mistral's *Le Chonk wants to play* challenge.
+**Mistral Large plays Shattered Pixel Dungeon.** An entry for Mistral's *Le Chonk wants to play* challenge,
+vibe coded with Claude Code.
 
 Shattered Pixel Dungeon is a turn-based roguelike: one hero, a dungeon of random floors, monsters, unidentified
 potions and scrolls, and permanent death. Chonk Dungeon is a harness that lets a Mistral model play it the
@@ -74,7 +75,9 @@ python -m chonk_dungeon budget    # money spent so far, from the logs
 ```
 
 Each command lists its options with `--help`. In the viewer, Space pauses a replay, ← → step through turns,
-F11 toggles full screen and Ctrl + / Ctrl − change the text size.
+F11 toggles full screen and Ctrl + / Ctrl − change the text size. A replay shows each turn for `--delay`
+seconds, or with `--speed 10` follows the real timing of the game, 10 times faster, so that it lines up with a
+recording of the game sped up as much.
 
 Tests without the API: `--dry-run` prints the prompt, `--brain manual` takes actions typed in the console,
 `--brain scripted --script "goto T1; examine T2"` plays a fixed list. The harness pauses when another window
@@ -112,5 +115,7 @@ screenshots), `python -m chonk_dungeon.game_state` (state exported by the runnin
   https://www.patreon.com/ShatteredPixel. Based on **Pixel Dungeon** by Oleg Dolya (Watabou).
 - The Chonk build is an unofficial fork: please do not report its issues to the original developers.
 - Mistral AI models through the Mistral API.
+- The project (harness, viewer and the changes to the game) was vibe coded with Claude Code (Anthropic).
+  Every in-game decision is made by Mistral.
 - Idea of action plans, a stated goal and a "usable actions" line inspired by
   [heroes-3-mcp](https://github.com/andreinwald/heroes-3-mcp), another entry of the challenge.
